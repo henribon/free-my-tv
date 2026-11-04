@@ -91,6 +91,61 @@ function call(uri, clientKey, done) {
   socket.on('close', function () { finish(null); });
 }
 
+// The Home button's helper (webos/homekey). It can't be started from a page or kept alive by this service: it's its own
+// native app, the only kind that may read the remote. A boot starts nothing by itself, so a persistent activity calls
+// `tick` every few minutes, and within the first minutes after a boot, that starts the helper.
+var HOMEKEY = 'io.freemytv.homekey', HOMEKEY_PORT = 17171, ACTIVITY = 'io.freemytv.homekey.boot', BOOT_WINDOW_S = 600;
+
+/** Tells the helper something ('ping', 'stop'); done(whether it's running). */
+function tellHomekey(what, done) {
+  var socket = net.connect(HOMEKEY_PORT, '127.0.0.1');
+  socket.on('connect', function () { socket.end(what); done(true); });
+  socket.on('error', function () { done(false); });
+}
+
+/** With preload: it has no window, and a plain launch would take what's on screen away, to LG's home screen. */
+function startHomekey(done) {
+  service.call('luna://com.webos.applicationManager/launch', {id: HOMEKEY, preload: 'full'}, function (reply) { done(reply.payload); });
+}
+
+service.register('homekey', function (message) {
+  var on = !(message.payload && message.payload.on === false);
+  var activity = null;
+  function answer(result) { message.respond({returnValue: true, on: on, result: result, activity: activity}); }
+  function running() {
+    tellHomekey('ping', function (yes) { if (yes) answer('running'); else startHomekey(answer); });
+  }
+  if (!on) {
+    service.call('luna://com.palm.activitymanager/cancel', {activityName: ACTIVITY}, function () {
+      tellHomekey('stop', function (yes) { answer(yes ? 'stopped' : 'not running'); });
+    });
+    return;
+  }
+  if (message.payload && message.payload.again) { running(); return; }   // the activity is there: only make sure it runs
+  service.call('luna://com.palm.activitymanager/create', {activity: {name: ACTIVITY, description: 'Free My TV: Home button after a boot',
+    type: {foreground: true, persist: true}, schedule: {interval: '5m', precise: true},
+    callback: {method: 'luna://' + require('./package.json').name + '/tick', params: {}}},
+    start: true, replace: true, subscribe: false}, function (reply) {
+    activity = reply.payload;
+    running();
+  });
+});
+
+service.register('tick', function (message) {
+  function done(result) {
+    if (message.payload && message.payload.$activity && message.activity) {
+      service.activityManager.complete(message.activity, {restart: true}, function () { message.respond({returnValue: true, result: result}); });
+    } else {
+      message.respond({returnValue: true, result: result});
+    }
+  }
+  tellHomekey('ping', function (yes) {
+    if (yes) done('running');
+    else if (parseFloat(require('fs').readFileSync('/proc/uptime', 'utf8')) > BOOT_WINDOW_S) done('not after a boot');
+    else startHomekey(done);
+  });
+});
+
 service.register('ssap', function (message) {
   var p = message.payload || {};
   // Only the app list, the one call the page makes: nothing else goes to the TV's API, nor gets its client key.

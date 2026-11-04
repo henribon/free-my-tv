@@ -1,9 +1,10 @@
 /*
  * The home screen for web-app TVs (LG webOS, Samsung Tizen), with the Android app's design and behavior (HomeView):
  *  - top: the "For You" title and the tabs (Explore, Movies, Shows); icon-only glass buttons at the right (Live TV,
- *    HDMI Inputs, Settings) and the crypto quotes at the end of the tab row;
+ *    HDMI Inputs, Shelf, Settings) and the crypto quotes at the end of the tab row;
  *  - three picks for this hour in the selected tab; the background is the focused one's photo, blurred, almost white;
- *  - the glass shelf with the apps; ↓ opens the drawer (inputs, shortcuts, weather, prices); ↑ or Back closes it;
+ *  - the glass shelf with the apps, up to two rows, and a last tile to add or remove them; ↓ from the lowest row opens
+ *    the drawer (inputs, shortcuts, weather, prices); ↑ or Back closes it;
  *  - a night look from sunset to sunrise; a screensaver after a few idle minutes.
  * The remote's arrows, OK and Back move the focus; a pointer (LG's Magic Remote) focuses what it points at.
  */
@@ -84,9 +85,9 @@
     ['jellyfin', /jellyfin/i, /jellyfin/i, ['#AA5CC3', '#00A4DC']],
     ['spotify', /spotify/, /spotify/i, ['#1DB954', '#0F7A36']]
   ];
-  // Apps shown at once, as on Android: 8 (today's smallest tiles, 178 wide); the shelf scrolls for the rest. The
-  // built-in list keeps 8 too.
-  var SHELF_VISIBLE = 8, FEW_APPS = 8;
+  // Apps shown at once: two rows of 8 (today's smallest tiles, 168 wide); the shelf scrolls for the rest. The built-in
+  // list keeps 15, which fills both rows along with the tile that adds or removes apps.
+  var SHELF_COLUMNS = 8, SHELF_ROWS = 2, FEW_APPS = 15;
 
   function shelfKey(app) {
     for (var i = 0; i < SHELF.length; i++) if (SHELF[i][1].test(app.id) || SHELF[i][2].test(app.title)) return SHELF[i];
@@ -312,7 +313,7 @@
           if ((SHELF[s][1].test(apps[a].id) || SHELF[s][2].test(apps[a].title)) && out.indexOf(apps[a]) < 0) { out.push(apps[a]); break; }
         }
       }
-      if (!out.length) out = apps.slice(0, FEW_APPS);
+      for (var b = 0; b < apps.length && out.length < FEW_APPS; b++) if (out.indexOf(apps[b]) < 0) out.push(apps[b]);
     }
     shelf = out;
     others = apps.filter(function (x) { return shelf.indexOf(x) < 0; });
@@ -382,6 +383,13 @@
     return (r.left + r.right) / 2;
   }
 
+  /** The tile nearest x in one of the shelf's rows on screen (0 is the upper one). */
+  function nearestTile(x, shown) {
+    var tiles = $('tiles').children, row = Math.min(shelfFirst + shown, Math.floor((tiles.length - 1) / SHELF_COLUMNS)), nodes = [];
+    for (var i = row * SHELF_COLUMNS; i < tiles.length && i < (row + 1) * SHELF_COLUMNS; i++) nodes.push(tiles[i]);
+    return row * SHELF_COLUMNS + nearest(nodes, x);
+  }
+
   // MARK: - Top: title, tabs, buttons, quotes
 
   var TAB_KIND = [null, 'movie', 'tv'];
@@ -397,10 +405,10 @@
     }
     var buttons = $('buttons');
     buttons.innerHTML = '';
-    var defs = [['live_tv', tr('light|Live TV')], ['hdmi', tr('HDMI Inputs')], ['settings', tr('light|Settings')]];
-    for (var b = 0; b < 3; b++) {
-      var r = el('button', 'round' + (b === 2 ? ' last' : ''), buttons);
-      r.style.left = (1596 + 88 * b) + 'px';
+    var defs = [['live_tv', tr('light|Live TV')], ['hdmi', tr('HDMI Inputs')], ['apps', tr('Shelf')], ['settings', tr('light|Settings')]];
+    for (var b = 0; b < defs.length; b++) {
+      var r = el('button', 'round' + (b === defs.length - 1 ? ' last' : ''), buttons);
+      r.style.left = (1508 + 88 * b) + 'px';
       sym(defs[b][0], r);
       el('div', 'tip', r, defs[b][1]);
       hover(r, Z.TOP, 3 + b);
@@ -518,66 +526,74 @@
 
   // MARK: - Shelf
 
-  var shelfFirst = 0, tileStep = 0, tileLeft = 0;
+  var shelfFirst = 0, tileStep = 0, tileLeft = 0, tileTop = 0, rowStep = 0;
 
   function renderShelf() {
-    var n = Math.min(shelf.length, SHELF_VISIBLE), gap = 48, pad = 40;
-    // 16:9 tiles, as on Android: never taller than 126, and the glass keeps its bottom edge.
-    var tw = Math.min(126 * 16 / 9, (1760 - Math.max(0, n - 1) * gap) / Math.max(1, n)), th = tw * 9 / 16;
-    var width = n * tw + Math.max(0, n - 1) * gap, left = (1920 - width) / 2;
+    var count = shelf.length + 1;   // the apps and the last tile, which adds or removes them
+    var n = Math.min(count, SHELF_COLUMNS), rows = Math.min(Math.ceil(count / SHELF_COLUMNS), SHELF_ROWS);
+    var gap = 48, rowGap = 36, pad = 40, margin = 80;
+    // 16:9 tiles, as on Android: never taller than 126, and the glass keeps its bottom edge. A full shelf's glass stays
+    // margin from the screen's sides, in line with the top buttons.
+    var tw = Math.min(126 * 16 / 9, (1920 - 2 * (margin + pad) - (n - 1) * gap) / n), th = tw * 9 / 16;
+    var width = n * tw + (n - 1) * gap, left = (1920 - width) / 2, height = rows * th + (rows - 1) * rowGap;
     var platter = $('platter');
-    platter.style.display = n ? '' : 'none';
     platter.style.left = (left - pad) + 'px';
     platter.style.width = (width + 2 * pad) + 'px';
-    platter.style.top = (814 + 126 - th) + 'px';
-    platter.style.height = (th + 2 * pad) + 'px';
-    $('quotes').style.right = (1920 - left - width) + 'px';
+    platter.style.top = (1020 - height - 2 * pad) + 'px';
+    platter.style.height = (height + 2 * pad) + 'px';
+    setClass(body, 'two-rows', rows > 1);   // the picks make room
+    $('quotes').style.right = (1920 - left - width - pad) + 'px';
     var tiles = $('tiles');
     tiles.innerHTML = '';
     tileStep = tw + gap;
     tileLeft = left;
-    shelfFirst = Math.max(0, Math.min(shelfFirst, shelf.length - n));
-    for (var i = 0; i < shelf.length; i++) {
-      var t = el('div', 'tile', tiles);
-      t.style.top = (854 + 126 - th) + 'px';
+    tileTop = 1020 - pad - height;
+    rowStep = th + rowGap;
+    shelfFirst = Math.max(0, Math.min(shelfFirst, Math.ceil(count / SHELF_COLUMNS) - SHELF_ROWS));
+    for (var i = 0; i < count; i++) {
+      var t = el('div', i < shelf.length ? 'tile' : 'tile add', tiles);
       t.style.width = tw + 'px';
       t.style.height = th + 'px';
-      face(shelf[i], t, wordFit(shelf[i].title, tw, 30));
+      if (i < shelf.length) face(shelf[i], t, wordFit(shelf[i].title, tw, 30));
+      else {
+        el('div', 'plus', t, '+');
+        el('div', 'label', t, tr('Edit')).style.fontSize = wordFit(tr('Edit'), tw, 24) + 'px';
+      }
       hover(t, Z.SHELF, i);
     }
-    // More apps than fit: a small arrow inside the glass's edge on each side that has more, where no tile reaches
-    // even focused (inside the screen's safe area, as on Android).
+    // More apps than fit: a small arrow inside the glass's top and bottom edges, where no tile reaches even focused
+    // (inside the screen's safe area, as on Android).
     platter.innerHTML = '';
     for (var a = 0; a < 2; a++) {
-      var arrow = sym('chevron_right', platter);
+      var arrow = sym('chevron_down', platter);
       arrow.className += a ? ' more' : ' more back';
-      arrow.style.left = (a ? width + 2 * pad - 14 : 14) - 8.5 + 'px';
-      arrow.style.top = (pad + th / 2 - 8.5) + 'px';
+      arrow.style.left = (width / 2 + pad - 8.5) + 'px';
+      arrow.style.top = (a ? height + 2 * pad - 14 : 14) - 8.5 + 'px';
     }
-    st.shelf = Math.min(st.shelf, Math.max(0, shelf.length - 1));
+    st.shelf = Math.min(st.shelf, shelf.length);
     placeTiles();
   }
 
-  /** The row slides (a transform on #tiles, which old TVs animate), and the apps it takes past the glass fade out. */
+  /** The rows slide (a transform on #tiles, which old TVs animate), and the apps they take past the glass fade out. */
   function placeTiles() {
-    var row = $('tiles'), tiles = row.children, n = Math.min(shelf.length, SHELF_VISIBLE);
-    for (var i = 0; i < shelf.length; i++) {
-      var shown = i >= shelfFirst && i < shelfFirst + n;
-      tiles[i].style.left = (tileLeft + i * tileStep) + 'px';
+    var holder = $('tiles'), tiles = holder.children;
+    for (var i = 0; i < tiles.length; i++) {
+      var row = Math.floor(i / SHELF_COLUMNS), shown = row >= shelfFirst && row < shelfFirst + SHELF_ROWS;
+      tiles[i].style.left = (tileLeft + (i % SHELF_COLUMNS) * tileStep) + 'px';
+      tiles[i].style.top = (tileTop + row * rowStep) + 'px';
       tiles[i].style.opacity = shown ? '' : '0';
       tiles[i].style.pointerEvents = shown ? '' : 'none';
     }
-    row.style.webkitTransform = row.style.transform = 'translateX(' + (-shelfFirst * tileStep) + 'px)';
+    holder.style.webkitTransform = holder.style.transform = 'translateY(' + (-shelfFirst * rowStep) + 'px)';
     var arrows = $('platter').children;
     arrows[0].style.visibility = shelfFirst > 0 ? '' : 'hidden';
-    arrows[1].style.visibility = shelfFirst + n < shelf.length ? '' : 'hidden';
+    arrows[1].style.visibility = shelfFirst + SHELF_ROWS < Math.ceil(tiles.length / SHELF_COLUMNS) ? '' : 'hidden';
   }
 
-  /** Scrolls the shelf, one app at a time, so the focused app is shown. */
+  /** Scrolls the shelf, one row at a time, so the focused app is shown. */
   function revealShelf() {
-    var n = Math.min(shelf.length, SHELF_VISIBLE);
-    var first = Math.max(0, Math.min(Math.max(shelfFirst, st.shelf - n + 1), Math.min(st.shelf, shelf.length - n)));
-    if (first === shelfFirst || !shelf.length) return;
+    var row = Math.floor(st.shelf / SHELF_COLUMNS), first = Math.max(Math.min(shelfFirst, row), row - SHELF_ROWS + 1);
+    if (first === shelfFirst) return;
     shelfFirst = first;
     placeTiles();
   }
@@ -698,7 +714,7 @@
   function closeDrawer() {
     var keys = document.querySelectorAll('#drawer .key');
     st.zone = Z.SHELF;
-    if (shelf.length) st.shelf = nearest($('tiles').children, centerX(keys[st.drawer]));
+    st.shelf = nearestTile(centerX(keys[st.drawer]), SHELF_ROWS - 1);
     updateFocus();
   }
 
@@ -801,6 +817,10 @@
       var open = Prefs.openPicks();
       rows.push({label: tr('Open picks in'), value: open === 'nuvio' ? 'Nuvio' : tr('Streaming apps'),
         step: function (d) { cycle('openPicks', ['apps', 'nuvio'], open, d); }});
+    }
+    if (TV.name === 'webos') {
+      rows.push({label: tr('Home button opens Free My TV'), toggle: Prefs.homeKey(),
+        step: function () { Prefs.set('homeKey', !Prefs.homeKey()); TV.homeKey(Prefs.homeKey()); }});
     }
     rows.push({label: tr('Shelf'), value: '›', shelf: true, step: function (d) { if (d >= 0) openShelfEdit(); }});
     rows.push({label: tr('About this TV'), value: '›', about: true, step: function (d) { if (d >= 0) openAbout(); }});
@@ -1205,15 +1225,18 @@
     list.style.height = Math.min(e.rows.length, 7) * 78 + 'px';
     for (var i = 0; i < e.rows.length; i++) {
       var a = e.rows[i], at = e.ids.indexOf(a.id), row = el('div', 'row', holder, a.title);
-      var place = el('span', 'value', row, at >= 0 ? '#' + (at + 1) : tr('shelf|Off'));
-      if (at >= 0) sym('check', place).style.marginLeft = '16px';   // on the shelf: a check, as in the pickers
+      el('span', 'value', row, at >= 0 ? '#' + (at + 1) + '  ·  ' + tr('Remove') : tr('Add'));
       hover(row, Z.EDIT, i);
     }
     el('div', 'hint', box, tr('OK adds or removes an app. ← → change the order.'));
     updateFocus();
   }
 
-  function openShelfEdit() {
+  var editFromHome = false;
+
+  /** fromHome: opened by the top button or the shelf's last tile, so Back goes to the shelf, not to Home Settings. */
+  function openShelfEdit(fromHome) {
+    editFromHome = !!fromHome;
     setClass($('settings'), 'open', false);
     st.zone = Z.EDIT;
     st.edit = 0;
@@ -1287,6 +1310,7 @@
         if (st.top < 3) return;
         if (st.top === 3) { var live = liveTV(); if (live) launcher(live.id, tr('Live TV'))(); }
         else if (st.top === 4) { st.zone = Z.SHELF; openDrawer(); st.drawer = 1 < drawerInputs ? 1 : 0; updateFocus(); }
+        else if (st.top === 5) openShelfEdit(true);
         else openSettings();
         return;
       case Z.CARDS:
@@ -1295,6 +1319,7 @@
         return;
       case Z.SHELF:
         if (shelf[st.shelf]) launcher(shelf[st.shelf].id, shelf[st.shelf].title)();
+        else openShelfEdit(true);
         return;
       case Z.DRAWER:
         if (drawerItems[st.drawer]) drawerItems[st.drawer].run();
@@ -1340,25 +1365,28 @@
     var tiles = $('tiles').children, cardNodes = $('cards').children;
     switch (st.zone) {
       case Z.SHELF:
-        if (dx) st.shelf = Math.max(0, Math.min(shelf.length - 1, st.shelf + dx));
-        else if (dy > 0) { openDrawer(); return; }
-        else if (dy < 0) {
-          if (cards.length) { st.zone = Z.CARDS; st.card = nearest(cardNodes, centerX(tiles[st.shelf])); }
-          else { st.zone = Z.TOP; st.top = Data.hasKey() ? st.tab : 3; }
-        }
+        var row = Math.floor(st.shelf / SHELF_COLUMNS), to = st.shelf + dx;
+        if (dx) {
+          if (to >= 0 && to <= shelf.length && Math.floor(to / SHELF_COLUMNS) === row) st.shelf = to;
+        } else if (dy > 0) {
+          if (row === Math.floor(shelf.length / SHELF_COLUMNS)) { openDrawer(); return; }
+          st.shelf = Math.min(shelf.length, st.shelf + SHELF_COLUMNS);
+        } else if (row > 0) st.shelf -= SHELF_COLUMNS;
+        else if (cards.length) { st.zone = Z.CARDS; st.card = nearest(cardNodes, centerX(tiles[st.shelf])); }
+        else { st.zone = Z.TOP; st.top = Data.hasKey() ? st.tab : 3; }
         break;
       case Z.CARDS:
         if (dx) st.card = Math.max(0, Math.min(cards.length - 1, st.card + dx));
         else if (dy < 0) { st.zone = Z.TOP; st.top = st.tab; }
-        else if (shelf.length) { st.zone = Z.SHELF; st.shelf = nearest(tiles, centerX(cardNodes[st.card])); }
+        else { st.zone = Z.SHELF; st.shelf = nearestTile(centerX(cardNodes[st.card]), 0); }
         break;
       case Z.TOP:
         if (dx) {
-          st.top = Math.max(Data.hasKey() ? 0 : 3, Math.min(5, st.top + dx));   // without the picks the tabs can't hold focus
+          st.top = Math.max(Data.hasKey() ? 0 : 3, Math.min(6, st.top + dx));   // without the picks the tabs can't hold focus
           if (st.top < 3) selectTab(st.top);   // as on Apple TV: focusing a tab selects it
         } else if (dy > 0) {
           if (cards.length) { st.zone = Z.CARDS; st.card = Math.min(cards.length - 1, st.top < 3 ? 0 : cards.length - 1); }
-          else st.zone = Z.SHELF;
+          else { st.zone = Z.SHELF; st.shelf = shelfFirst * SHELF_COLUMNS + st.shelf % SHELF_COLUMNS; }
         }
         break;
       case Z.DRAWER:
@@ -1395,6 +1423,7 @@
 
   function back() {
     if (st.zone === Z.EDIT) {
+      if (editFromHome) { closeSheets(); return; }
       setClass($('shelfedit'), 'open', false);
       openSettings();
       for (var i = 0; i < rowsNow.length; i++) if (rowsNow[i].shelf) st.row = i;   // back on the Shelf row, whatever follows it
@@ -1407,7 +1436,7 @@
     if (st.zone === Z.ABOUT) { closeAbout(); return; }
     if (sheetOpen()) { closeSheets(); return; }
     if (st.zone === Z.DRAWER) { closeDrawer(); return; }
-    if (st.zone !== Z.SHELF && shelf.length) { st.zone = Z.SHELF; updateFocus(); return; }
+    if (st.zone !== Z.SHELF) { st.zone = Z.SHELF; updateFocus(); return; }
     TV.back();
   }
 
@@ -1687,7 +1716,27 @@
     // LG: with handlesRelaunch the app has to come to the front itself, or opening it again while it runs shows nothing.
     if (window.PalmSystem && window.PalmSystem.activate) window.PalmSystem.activate();
     reset();
-    loadApps(function () { renderShelf(); renderDrawer(); restInDrawer(); Data.refresh(); });
+    refreshSoon();
+  }
+
+  var refreshTimer = null;
+
+  /** The TV's apps again once the screen is back: on small TVs listing them takes a while and holds the page up, so
+   *  not while it's coming to the front, and the shelf is only drawn again when something changed. */
+  function refreshSoon() {
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(function () {
+      var before = shelfNow();
+      loadApps(function () {
+        if (shelfNow() !== before) { renderShelf(); renderDrawer(); restInDrawer(); updateFocus(); }
+        Data.refresh();
+        if (Prefs.homeKey()) TV.homeKey(true, true);
+      });
+    }, 2500);
+  }
+
+  function shelfNow() {
+    return JSON.stringify([shelf.map(function (a) { return [a.id, a.title, a.icon]; }), inputs]);
   }
 
   window.addEventListener('resize', fit);
@@ -1696,13 +1745,14 @@
   document.addEventListener('visibilitychange', function () {
     if (document.hidden) { hideSaver(); hideAmbient(); return; }
     idleAt = Date.now();
-    loadApps(function () { renderShelf(); renderDrawer(); updateFocus(); Data.refresh(); });
+    refreshSoon();
   });
 
   I18N.set(Prefs.language());
   checkNight();   // now, from the last forecast: not after the TV lists its apps, with the day look until then
   // LG's screensaver waits only when ours will show: not under a sheet (ours waits there), and not without photos.
   TV.holdScreenSaver(function () { return !sheetOpen() && (saverMode() === 'clock' || saverPhotos().length > 0); });
+  TV.homeKey(Prefs.homeKey());
   fit();
   renderTop();
   applyDim();

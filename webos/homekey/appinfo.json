@@ -1,0 +1,14 @@
+{
+  "id": "io.freemytv.homekey",
+  "version": "1.3.0",
+  "vendor": "Free My TV",
+  "type": "native",
+  "main": "start.sh",
+  "title": "Free My TV Home button",
+  "icon": "icon.png",
+  "visible": false,
+  "noWindow": true,
+  "noSplashOnLaunch": true,
+  "spinnerOnLaunch": false,
+  "requiredACG": ["application.launcher"]
+}

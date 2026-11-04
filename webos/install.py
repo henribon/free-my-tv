@@ -31,7 +31,8 @@ import build  # noqa: E402  (reads and changes the package's appinfo.json)
 IPK = os.path.join(ROOT, 'FreeMyTV-webos.ipk')
 with open(os.path.join(ROOT, 'webos', 'appinfo.json'), encoding='utf-8') as f:
     APP_ID = json.load(f)['id']
-TEMP = '/media/developer/temp/freemytv.ipk'
+HOMEKEY_ID = APP_ID + '.homekey'
+TEMP ='/media/developer/temp/freemytv.ipk'
 SSH_OPTS = ['-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=' + os.devnull, '-o', 'LogLevel=ERROR',
             '-o', 'HostKeyAlgorithms=+ssh-rsa', '-o', 'PubkeyAcceptedKeyTypes=+ssh-rsa', '-p', '9922']
 
@@ -99,6 +100,27 @@ def luna(ip, key, uri, payload, replies=1, wait=20):
     return out
 
 
+def send(ip, key, package, app_id):
+    """Copies a package to the TV and installs it there with the TV's own installer."""
+    copy = ssh(ip, key, 'mkdir -p /media/developer/temp && cat > ' + TEMP, data=package)
+    if copy.returncode != 0:
+        err = copy.stderr.decode('utf-8', 'replace') if isinstance(copy.stderr, bytes) else copy.stderr
+        sys.exit('Couldn\'t copy it: %s\nIs Developer Mode still on? If the key changed, delete %s and try again.' % (err.strip(), key))
+    for attempt in range(2):   # a small TV under load can answer nothing at all, and go through the second time
+        out = luna(ip, key, 'luna://com.webos.appInstallService/dev/install', {'id': app_id, 'ipkUrl': TEMP, 'subscribe': True},
+                   replies=30, wait=60)
+        if '"state":"installed"' in out:
+            break
+    else:
+        sys.exit('The TV didn\'t finish installing. It said:\n' + out.strip())
+    ssh(ip, key, 'rm -f ' + TEMP)
+
+
+def stop_homekey(ip, key):
+    """A running helper keeps its old code, and would outlive a removal."""
+    ssh(ip, key, "node -e 'require(\"net\").connect(17171, \"127.0.0.1\").on(\"error\", function () {}).end(\"stop\")'")
+
+
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith('--')]
     if not args or not re.match(r'^\d{1,3}(\.\d{1,3}){3}$', args[0]):
@@ -109,6 +131,8 @@ def main():
     key = fetch_key(ip)
 
     if '--uninstall' in sys.argv:
+        stop_homekey(ip, key)
+        luna(ip, key, 'luna://com.webos.appInstallService/dev/remove', {'id': HOMEKEY_ID}, replies=3, wait=30)
         out = luna(ip, key, 'luna://com.webos.appInstallService/dev/remove', {'id': APP_ID}, replies=3, wait=30)
         print('Removed.' if '"returnValue":true' in out else 'The TV said: ' + out.strip())
         return
@@ -123,17 +147,11 @@ def main():
         if re.search(r'"UHD"\s*:\s*"?false', info):
             package = build.with_resolution(package, '1280x720')
             print('This TV isn\'t 4K, so the app goes in at 1280 x 720, the size it draws apps at.')
-    print('Copying the app to the TV ...')
-    copy = ssh(ip, key, 'mkdir -p /media/developer/temp && cat > ' + TEMP, data=package)
-    if copy.returncode != 0:
-        err = copy.stderr.decode('utf-8', 'replace') if isinstance(copy.stderr, bytes) else copy.stderr
-        sys.exit('Couldn\'t copy it: %s\nIs Developer Mode still on? If the key changed, delete %s and try again.' % (err.strip(), key))
-    print('Installing ...')
-    out = luna(ip, key, 'luna://com.webos.appInstallService/dev/install', {'id': APP_ID, 'ipkUrl': TEMP, 'subscribe': True},
-               replies=30, wait=60)
-    if '"state":"installed"' not in out:
-        sys.exit('The TV didn\'t finish installing. It said:\n' + out.strip())
-    ssh(ip, key, 'rm -f ' + TEMP)
+    print('Installing on the TV ...')
+    send(ip, key, package, APP_ID)
+    stop_homekey(ip, key)
+    with open(build.IPK_HOMEKEY, 'rb') as f:
+        send(ip, key, f.read(), HOMEKEY_ID)
     luna(ip, key, 'luna://com.webos.applicationManager/launch', {'id': APP_ID})
     print('Installed and open on the TV.')
     print('Tip: while Free My TV is open, hold a number key on the remote to open it with that key from anywhere.')

@@ -131,10 +131,18 @@ stays, and Free My TV opens with a long press of a number key.
    changes the package's `resolution` to 1280x720 before copying it: LG's Full HD and HD sets draw apps at that size,
    and a 2019 HD one (webOS 3.9) showed a 1920x1080 app in its top-left two thirds (#402). `--1080p` installs it as
    built; `python3 webos/build.py --hd` builds it at 1280x720.
-6. **Tell them:** while Free My TV is open, holding a number key pins it to that key (on a remote without number keys,
+6. **Home button:** `webos/homekey` is a second package `install.py` puts in: a native app with no window, the only kind
+   that may read `/dev/input` (group `compositor`; the web app's JS service may not). It reads key 773 on
+   `LGE M-RCU - Builtin [0]`, never grabbing it, and launches the app: at once, and again 500 ms after the key comes up,
+   since LG's home screen can come up over it. `getForegroundAppInfo` doesn't see the physical button: there LG's home
+   screen is an overlay (webOS 10.3 tested). Start it with `preload: 'full'`: a plain launch of an app with no window
+   sends the TV to LG's home screen. A persistent activity in `webos/service` starts it after a boot; the TV freezes it
+   while off, and a gap in its timers is how it knows the TV came back on. Touch
+   `/media/developer/temp/freemytv-homekey.log` over SSH for a log.
+7. **Tell them:** while Free My TV is open, holding a number key pins it to that key (on a remote without number keys,
    it's in LG's app list on the home screen). Developer Mode lasts about 40 days; *EXTEND* in that app renews it (if
    it runs out, the TV removes developer apps, and installing again brings it back). `--uninstall` removes Free My TV.
-7. **Empty shelf on webOS 3** (user agent Chrome 38): the app can't list the TV's apps there (`listLaunchPoints`
+8. **Empty shelf on webOS 3** (user agent Chrome 38): the app can't list the TV's apps there (`listLaunchPoints`
    denied, no `getAppLoadStatus`, and the remote control API answers `invalid origin` to file:// pages). Run
    `python3 webos/apps.py <IP>`: the TV asks them once to allow it, then build and install again. It writes
    `webos-apps.local.json` and `webos-icons.local/` (git-ignored), which only the LG build packs, never `--generic`.

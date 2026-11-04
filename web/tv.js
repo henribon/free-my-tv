@@ -608,6 +608,11 @@ var TV = (function () {
     /** LG: keeps the TV's screensaver away while ours will take over (`hold` says when). */
     holdScreenSaver: holdScreenSaver,
 
+    /** LG: whether the remote's Home button opens Free My TV. The service starts or stops the helper (webos/homekey). */
+    homeKey: function (on, again) {
+      if (webos) luna('luna://' + self + '.service/homekey', {on: on, again: !!again});
+    },
+
     /** Back on the first screen: back to wherever the person came from. */
     back: function () {
       if (samsung) {

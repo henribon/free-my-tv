@@ -24,6 +24,7 @@ import webapp  # noqa: E402
 
 OUT = os.path.join(ROOT, 'out', 'webos')
 IPK = os.path.join(ROOT, 'FreeMyTV-webos.ipk')
+IPK_HOMEKEY = os.path.join(ROOT, 'FreeMyTV-webos-homekey.ipk')
 # A TV's app list and icons from webos/apps.py, for TVs that won't list their apps to the app (webOS 3).
 APP_LIST = os.path.join(ROOT, 'webos-apps.local.json')
 APP_ICONS = os.path.join(ROOT, 'webos-icons.local')
@@ -62,7 +63,7 @@ def tar_gz(entries):
                 tar.addfile(info)
             else:
                 info.size = len(data)
-                info.mode = 0o644
+                info.mode = 0o755 if name.endswith('.sh') else 0o644
                 tar.addfile(info, io.BytesIO(data))
     return buf.getvalue()
 
@@ -121,6 +122,36 @@ def with_resolution(ipk, size):
     return ar(members)
 
 
+def ipk(app_id, version, entries, size):
+    control = ('Package: %s\nVersion: %s\nSection: misc\nPriority: optional\nArchitecture: all\nInstalled-Size: %d\n'
+               'Maintainer: Free My TV <https://freemytv.io>\nDescription: A fast, ad-free home screen.\n'
+               'webOS-Package-Format-Version: 2\nwebOS-Packager-Version: 1.0.0\n' % (app_id, version, size))
+    return ar([('debian-binary', b'2.0\n'), ('control.tar.gz', tar_gz([('control', control.encode('utf-8'))])),
+               ('data.tar.gz', tar_gz(entries))])
+
+
+def build_homekey():
+    """The helper behind the remote's Home button (webos/homekey): a package of its own, since a package has one app."""
+    folder = os.path.join(ROOT, 'webos', 'homekey')
+    with open(os.path.join(folder, 'appinfo.json'), encoding='utf-8') as f:
+        info = json.load(f)
+    app_id, version = info['id'], info['version']
+    files = {}
+    for name in ('appinfo.json', 'homekey.js', 'start.sh'):
+        with open(os.path.join(folder, name), 'rb') as f:
+            files[name] = f.read().replace(b'\r\n', b'\n')   # a checkout on Windows mustn't break the #! line
+    with open(os.path.join(ROOT, 'webos', 'icon.png'), 'rb') as f:
+        files['icon.png'] = f.read()
+    base = 'usr/palm/applications/' + app_id
+    entries = [('usr', None), ('usr/palm', None), ('usr/palm/applications', None), (base, None)]
+    entries += [(base + '/' + name, files[name]) for name in sorted(files)]
+    package = json.dumps({'id': app_id, 'version': version, 'app': app_id}, indent=2).encode('utf-8')
+    entries += [('usr/palm/packages', None), ('usr/palm/packages/' + app_id, None),
+                ('usr/palm/packages/' + app_id + '/packageinfo.json', package)]
+    with open(IPK_HOMEKEY, 'wb') as f:
+        f.write(ipk(app_id, version, entries, sum(len(d) for d in files.values()) + len(package)))
+
+
 def build(preview, config, generic=False, hd=False):
     with open(os.path.join(ROOT, 'webos', 'appinfo.json'), encoding='utf-8') as f:
         info = json.load(f)
@@ -152,7 +183,8 @@ def build(preview, config, generic=False, hd=False):
                    'package.json': json.dumps({'name': service_id, 'version': version, 'main': 'service.js'},
                                               indent=2).encode('utf-8'),
                    'services.json': json.dumps({'id': service_id, 'description': 'Free My TV',
-                                                'services': [{'name': service_id, 'description': 'Free My TV'}]},
+                                                'services': [{'name': service_id, 'description': 'Free My TV'}],
+                                                'requiredACG': ['activity.operation', 'application.launcher']},
                                                indent=2).encode('utf-8')}
     service_base = 'usr/palm/services/' + service_id
     entries += [('usr/palm/services', None), (service_base, None)]
@@ -164,13 +196,10 @@ def build(preview, config, generic=False, hd=False):
                 ('usr/palm/packages/' + app_id + '/packageinfo.json', package)]
 
     size = sum(len(d) for d in app.values()) + sum(len(d) for d in service.values()) + len(package)
-    control = ('Package: %s\nVersion: %s\nSection: misc\nPriority: optional\nArchitecture: all\nInstalled-Size: %d\n'
-               'Maintainer: Free My TV <https://freemytv.io>\nDescription: A fast, ad-free home screen.\n'
-               'webOS-Package-Format-Version: 2\nwebOS-Packager-Version: 1.0.0\n' % (app_id, version, size))
-    data = ar([('debian-binary', b'2.0\n'), ('control.tar.gz', tar_gz([('control', control.encode('utf-8'))])),
-               ('data.tar.gz', tar_gz(entries))])
+    data = ipk(app_id, version, entries, size)
     with open(IPK, 'wb') as f:
         f.write(data)
+    build_homekey()
 
     if preview:
         webapp.preview(app, OUT)
