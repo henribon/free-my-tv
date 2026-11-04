@@ -137,7 +137,9 @@ stays, and Free My TV opens with a long press of a number key.
    since LG's home screen can come up over it. `getForegroundAppInfo` doesn't see the physical button: there LG's home
    screen is an overlay (webOS 10.3 tested). Start it with `preload: 'full'`: a plain launch of an app with no window
    sends the TV to LG's home screen. A persistent activity in `webos/service` starts it after a boot; the TV freezes it
-   while off, and a gap in its timers is how it knows the TV came back on. Touch
+   while off, and a gap in its timers is how it knows the TV came back on. LG closes the app behind others (YouTube) and
+   opening it from closed took 3 to 5 s on a 1.25 GB TV, against under 2 s when loaded, so the helper loads it again
+   with `preload: 'full'` (about 50 MB), backing off if LG closes it again soon. Touch
    `/media/developer/temp/freemytv-homekey.log` over SSH for a log.
 7. **Tell them:** while Free My TV is open, holding a number key pins it to that key (on a remote without number keys,
    it's in LG's app list on the home screen). Developer Mode lasts about 40 days; *EXTEND* in that app renews it (if
@@ -584,5 +586,8 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   `formatDate('format|h:mm a', at)` (the catalogue's SimpleDateFormat pattern, written by `web/strings.js`), and
   `tools/translate.py` reads those calls too. Built without a city (`--generic`), `web/zones.js`
   (`tools/make_zones.py`, from the tz database) turns the TV's time zone into the city, the currency and the region.
+  Opening fast on small TVs: `lift()` took over 2 s for the shelf's icons on a 1.25 GB LG, so its logos are kept in
+  localStorage by app id (the remote control API gives an icon a new address on each list), and the screen is drawn from
+  the last list of apps; the TV's list, the service and the network come 2.5 s later (`refreshSoon`).
   `tools/webapp.py` is what both builds share. Preview: `python3 webos/build.py --preview` (or `tizen/build.py`), then
   open `out/webos/index.html` in a browser (a stand-in lists sample apps).

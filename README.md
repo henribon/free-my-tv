@@ -132,7 +132,7 @@ Older LG TVs (webOS 3) don't let Free My TV see their apps at all, so the shelf 
 python3 webos/apps.py 192.168.1.50 && python3 webos/build.py && python3 webos/install.py 192.168.1.50
 ```
 
-**The Home button.** LG doesn't let an app replace its home screen without root, so a small helper with no window, installed along with the app ([`webos/homekey`](webos/homekey)), notices the remote's Home button and opens Free My TV over LG's home screen, which shows for a moment. It also opens Free My TV when the TV comes back on. It only reads the button and doesn't block the remote. *Home Settings* → *Home button opens Free My TV* turns it off, for the times you want LG's home screen.
+**The Home button.** LG doesn't let an app replace its home screen without root, so a small helper with no window, installed along with the app ([`webos/homekey`](webos/homekey)), notices the remote's Home button and opens Free My TV over LG's home screen, which shows for a moment. It also opens Free My TV when the TV comes back on, and keeps it loaded behind other apps so it opens faster (about 50 MB of memory). It only reads the button and doesn't block the remote. *Home Settings* → *Home button opens Free My TV* turns it off, for the times you want LG's home screen.
 
 Developer Mode lasts about 40 days: open the Developer Mode app now and then and press **EXTEND**. To remove Free My TV, run `python3 webos/install.py 192.168.1.50 --uninstall`.
 

@@ -2,6 +2,7 @@
  * Free My TV's Home button on LG webOS: a small helper with no window. Without root the TV can't replace its home
  * screen, so this reads the remote's keys and, right after a press of Home, opens Free My TV over LG's home screen.
  * It also opens Free My TV when the TV starts or wakes up. To reach LG's home screen, turn it off in Home Settings.
+ * And it keeps the app loaded: LG closes it behind other apps, and from closed it takes seconds to open.
  * The keys are only read, never grabbed: the remote keeps working whatever happens here. Only Home's key number is
  * looked at, and nothing is kept or sent anywhere.
  * It's a native app because only those may read /dev/input; the web app's JS service may not.
@@ -13,6 +14,8 @@ var APP = 'io.freemytv', PORT = 17171;
 var HOME_KEY = 773, REMOTES = /^LGE M-RCU - Builtin \[0\]$|^LGE RCU$/;
 var REOPEN_MS = 500;     // after the key comes up: LG's home screen, slower than us, may have come up over ours
 var SLEPT_MS = 10000;    // timers stand still while the TV is off: a gap this long means it just came back on
+var CHECK_MS = 20000;    // how often to see whether LG has closed the app
+var CHECK_MAX_MS = 600000, CLOSED_SOON_MS = 180000;   // closed again this soon, LG wants the room: wait longer, up to this
 var LOG = '/media/developer/temp/freemytv-homekey.log';   // only written when it exists (touch it over SSH to debug)
 
 function log(text) {
@@ -29,7 +32,28 @@ function open(why) {
       {timeout: 8000}, function (err) { if (err) log('launch failed: ' + err.message); });
 }
 
-var reopen = null;
+var reopen = null, checkEvery = CHECK_MS, closedBefore = false, loadedAt = 0;
+
+/**
+ * Loads the app again behind the one in front, hidden, once it has stayed closed for two checks: not while another app
+ * is starting up.
+ */
+function keepLoaded() {
+  cp.execFile('/usr/bin/luna-send-pub', ['-n', '1', 'luna://com.webos.applicationManager/dev/running', '{}'], {timeout: 5000}, function (err, out) {
+    var answered = /returnValue/.test(String(out)), closed = answered && String(out).indexOf('"id":"' + APP + '"') < 0;
+    if (closed && closedBefore) {
+      var now = Date.now();
+      checkEvery = now - loadedAt < CLOSED_SOON_MS ? Math.min(checkEvery * 2, CHECK_MAX_MS) : CHECK_MS;
+      loadedAt = now;
+      closed = false;
+      log('loading the app behind, next check in ' + checkEvery / 1000 + ' s');
+      cp.execFile('/usr/bin/luna-send-pub', ['-n', '1', 'luna://com.webos.applicationManager/launch', JSON.stringify({id: APP, preload: 'full'})],
+          {timeout: 8000}, function () {});
+    }
+    closedBefore = closed;
+    setTimeout(keepLoaded, checkEvery);
+  });
+}
 
 function onKey(code, value) {
   if (code !== HOME_KEY) return;
@@ -71,6 +95,7 @@ function remotes() {
 function watch() {
   log('watching, uid ' + process.getuid() + ', groups ' + process.getgroups().join(','));
   remotes().forEach(read);
+  setTimeout(keepLoaded, CHECK_MS);
   var last = Date.now();
   setInterval(function () {
     var now = Date.now();
