@@ -389,15 +389,24 @@ var Data = (function () {
       if (!home.team || !away.team || (src.keep && !src.keep(String(home.team.id), String(away.team.id)))) continue;
       var state = gameState(c.status || e.status);
       if (!state) continue;
-      out.push({id: e.id, at: espnTime(c.date || e.date), state: state, clock: gameClock(c.status || e.status), tag: src.tag,
-        home: club(home), away: club(away), venue: (c.venue && c.venue.fullName) || '',
+      out.push({id: e.id, at: espnTime(c.date || e.date), state: state, clock: gameClock(c.status || e.status),
+        tag: src.tag || leagueTag(e.league), home: club(home), away: club(away), venue: (c.venue && c.venue.fullName) || '',
         star: starred(String(home.team.id), String(away.team.id))});
     }
     return out;
   }
 
+  /** A side of a game, from a scoreboard or from a club's fixtures (its crest in `logos`, its score an object). */
   function club(x) {
-    return {name: x.team.shortDisplayName || x.team.displayName || '', crest: crest(x.team.logo), score: x.score === undefined ? '' : String(x.score)};
+    var t = x.team, s = x.score, logo = t.logo || (t.logos && t.logos[0] && t.logos[0].href);
+    return {name: t.shortDisplayName || t.displayName || '', crest: crest(logo),
+      score: s === undefined || s === null ? '' : String(typeof s === 'object' ? s.displayValue || '' : s)};
+  }
+
+  /** A league in a club's fixtures, named as its source here is ("Série A"), or as ESPN names it. */
+  function leagueTag(league) {
+    for (var i = 0; league && i < SOURCES.length; i++) if (SOURCES[i].path === 'soccer/' + league.slug) return SOURCES[i].tag;
+    return (league && (league.shortName || league.name)) || '';
   }
 
   function people(x) { return x.athlete ? [x.athlete] : (x.roster && x.roster.athletes) || []; }
@@ -488,10 +497,40 @@ var Data = (function () {
     return soon ? 60000 : some ? 15 * 60000 : 60 * 60000;
   }
 
+  // Botafogo's next games in every competition ESPN has, for the top of the home screen: every hour.
+  var fixtures = stored('fixtures') || {at: 0, list: []}, fetchingFixtures = false;
+
+  function refreshFixtures() {
+    var now = Date.now();
+    if (fetchingFixtures || (now - fixtures.at < 60 * 60000 && now >= fixtures.at)) return;
+    fetchingFixtures = true;
+    get(ESPN + 'soccer/all/teams/' + BOTAFOGO + '/schedule?fixture=true', {}, function (err, body) {
+      fetchingFixtures = false;
+      fixtures = {at: Date.now() - (err ? 50 * 60000 : 0), list: err ? fixtures.list : soccerGames({}, body)};   // no answer: again in 10 minutes
+      store('fixtures', fixtures);
+      if (!err) changed();
+    });
+  }
+
+  /** Botafogo's game on now or its next one, with the minute and the score from the day's games while it's on; or null. */
+  function nextGame() {
+    var now = Date.now(), list = fixtures.list.slice().sort(function (a, b) { return a.at - b.at; });
+    for (var i = 0; i < list.length; i++) {
+      var g = list[i];
+      for (var s = 0; s < SOURCES.length; s++) {
+        var day = games[SOURCES[s].path] || [];
+        for (var k = 0; k < day.length; k++) if (day[k].id === g.id) g = day[k];
+      }
+      if (g.state !== 'post' && now - g.at < 4 * 3600000) return g;
+    }
+    return null;
+  }
+
   function refreshGames() {
     if (!Prefs.sports()) return;
     refreshRanks();
     refreshAgenda();
+    refreshFixtures();
     if (fetchingGames) return;
     var now = Date.now(), due = [];
     for (var i = 0; i < SOURCES.length; i++) {
@@ -950,6 +989,7 @@ var Data = (function () {
     /** The games panel turned on or off. */
     sportsChanged: function () { refreshGames(); changed(); },
     gameDay: gameDay,
+    nextGame: nextGame,
     whereToWatch: whereToWatch,
     findCity: findCity,
     /** Another city picked: its weather now (none shown until it comes). */

@@ -134,6 +134,34 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .night .tab.focus { color: #1D1D1F; box-shadow: 0 8px 26px rgba(0, 0, 0, 0.4); }
 
 /* Crypto quotes at the right end of the tab row: a quiet detail. */
+/* Botafogo's next game: a card left of the buttons, clear of the title in every language's width. */
+#next { position: absolute; left: 870px; top: 34px; width: 590px; height: 138px; border-radius: 30px; text-align: center; color: #1D1D1F; display: none; }
+#next.on { display: block; }
+#next { box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1), inset 0 0 0 2px rgba(229, 162, 0, 0.75); }
+.night #next { box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3), inset 0 0 0 2px rgba(255, 196, 0, 0.7); }
+#next .label { margin-top: 14px; font-size: 20px; font-weight: 600; color: #6E6E73; white-space: nowrap; }
+#next .teams { position: relative; height: 50px; margin-top: 6px; font-size: 30px; font-weight: 700; white-space: nowrap; }
+#next .team { position: absolute; top: 4px; width: 250px; overflow: hidden; }
+#next .home { left: 0; text-align: right; }
+#next .away { right: 0; text-align: left; }
+#next .crest { display: inline-block; width: 40px; height: 40px; vertical-align: middle; }
+#next .n { display: inline-block; max-width: 180px; margin: 0 10px; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
+#next .score { position: absolute; left: 250px; width: 90px; top: 6px; -webkit-font-feature-settings: 'tnum'; font-feature-settings: 'tnum'; }
+#next .when { margin-top: 4px; padding: 0 20px; font-size: 22px; font-weight: 500; color: #6E6E73; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; -webkit-font-feature-settings: 'tnum'; font-feature-settings: 'tnum'; }
+#next .when.live { color: #D70015; font-weight: 600; }
+/* Without the picks: large, beside the clock (home.js centers it in the room right of the date). */
+.no-picks #next { top: 326px; width: 640px; height: 190px; border-radius: 34px; }
+.no-picks #next .label { margin-top: 22px; font-size: 22px; }
+.no-picks #next .teams { height: 64px; margin-top: 12px; font-size: 31px; }
+.no-picks #next .team { top: 6px; width: 270px; }
+.no-picks #next .crest { width: 50px; height: 50px; }
+.no-picks #next .n { max-width: 196px; margin: 0 12px; }
+.no-picks #next .score { left: 270px; width: 100px; top: 12px; }
+.no-picks #next .when { margin-top: 10px; font-size: 24px; }
+.night #next { color: #F5F5F7; }
+.night #next .label, .night #next .when { color: rgba(255, 255, 255, 0.68); }
+.night #next .when.live { color: #FF453A; }
+
 #quotes {
   position: absolute;
   right: 80px;

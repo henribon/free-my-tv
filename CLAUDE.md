@@ -607,5 +607,7 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   days of football as JSON (`window.dataSportsSchedule.sport`, each game's `liveWatchSources`) and answers no other
   origin, every hour; games are matched by time and names (`inAgenda`). It also brings Portuguesa's games ESPN lacks
   (Série D, Copa Paulista). ge has no tennis: the ATP and WTA tours' usual Brazilian channels are written in.
+  The card at the top (`#next`, `Data.nextGame`) is Botafogo's next game from ESPN's fixtures in every competition
+  (`soccer/all/teams/<id>/schedule?fixture=true`, every hour), with the day's scoreboard copy while it's on.
   `tools/webapp.py` is what both builds share. Preview: `python3 webos/build.py --preview` (or `tizen/build.py`), then
   open `out/webos/index.html` in a browser (a stand-in lists sample apps).

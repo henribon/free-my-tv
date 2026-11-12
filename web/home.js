@@ -552,6 +552,7 @@
     var d = new Date(), c = $('clock');
     c.firstChild.textContent = formatDate('format|h:mm', d.getTime());
     c.lastChild.textContent = formatDate('format|EEEE, MMMM d', d.getTime());
+    placeNext();
   }
 
   /** On the minute, so the clock never runs late (the 30-second refresh could, by up to 30 s). */
@@ -732,6 +733,37 @@
     if (side.crest) img.src = side.crest;
     else img.style.visibility = 'hidden';
     if (cls === 'home') { s.appendChild(name); s.appendChild(img); } else { s.appendChild(img); s.appendChild(name); }
+  }
+
+  // MARK: - Botafogo's next game, at the top
+
+  /** The game on now or the next one: who, when ("Qua 18 · 21:30"; the minute and the score while it's on) and where it's on, once known. */
+  function renderNext() {
+    var card = $('next'), g = Prefs.sports() ? Data.nextGame() : null;
+    card.innerHTML = '';
+    setClass(card, 'on', !!g);
+    if (!g) return;
+    el('div', 'label', card, tr('Next game') + (g.tag ? '  ·  ' + g.tag : ''));
+    var teams = el('div', 'teams', card), d = new Date(g.at), now = new Date();
+    team(teams, 'home', g.home);
+    el('span', 'score', teams, g.state === 'pre' ? '×' : g.home.score + ' × ' + g.away.score);
+    team(teams, 'away', g.away);
+    var today = d.getDate() === now.getDate() && Math.abs(g.at - now.getTime()) < 864e5, where = Data.whereToWatch(g);
+    var when = g.state === 'in' || today ? gameStatus(g) : Data.weekday(g.at) + ' ' + d.getDate() + '  ·  ' + Data.time(g.at);
+    if (where) when += '  ·  ' + where.list.map(function (w) { return w.name; }).join(', ');
+    el('div', 'when' + (g.state === 'in' ? ' live' : ''), card, when);
+    placeNext();
+  }
+
+  /**
+   * Without the picks the card is large, in the middle of the room right of the clock and the date (as wide as the
+   * day's name makes them); with the picks there, it's the small one left of the buttons (home.css).
+   */
+  function placeNext() {
+    var card = $('next'), clock = $('clock');
+    if (!hasClass(body, 'no-picks')) { card.style.left = ''; return; }
+    var from = clock.offsetLeft + clock.offsetWidth;
+    card.style.left = Math.round(from + Math.max(40, (1840 - from - card.offsetWidth) / 2)) + 'px';
   }
 
   // MARK: - A game, with where it's on (OK on it in the games panel)
@@ -1817,6 +1849,7 @@
     renderCards();
     renderShelf();
     renderDrawer();
+    renderNext();
     renderClock();
     checkNight();
     if (st.zone === Z.SETTINGS) renderSettings();
@@ -1875,6 +1908,7 @@
     renderQuotes();
     renderCards();
     renderPanels();
+    renderNext();
     checkNight();
     // The open game with its new minute and score, and where it's on once that comes.
     for (var i = 0; matchShown && i < gameRows.length; i++) if (gameRows[i].id === matchShown.id) renderMatch(matchShown = gameRows[i]);
