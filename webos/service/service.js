@@ -155,6 +155,58 @@ service.register('tick', function (message) {
   });
 });
 
+// Where the day's football is on in Brazil: ge.globo's agenda page carries five days of it (two back, two ahead) as JSON,
+// each game with its TV channels and streaming services. The page doesn't answer other origins, so it's read here.
+var https = require('https'), zlib = require('zlib');
+
+/** done(list of games) or done(null). */
+function agenda(done) {
+  var finished = false;
+  function finish(result) { if (!finished) { finished = true; done(result); } }
+  var req = https.get({host: 'ge.globo.com', path: '/agenda/', headers: {'Accept-Encoding': 'gzip', 'User-Agent': 'Mozilla/5.0'}}, function (res) {
+    if (res.statusCode !== 200) { res.resume(); finish(null); return; }
+    var chunks = [], body = res.headers['content-encoding'] === 'gzip' ? res.pipe(zlib.createGunzip()) : res;
+    body.on('data', function (chunk) { chunks.push(chunk); });
+    body.on('end', function () { finish(agendaGames(Buffer.concat(chunks).toString('utf8'))); });
+    body.on('error', function () { finish(null); });
+  });
+  req.setTimeout(20000, function () { req.abort(); });
+  req.on('error', function () { finish(null); });
+}
+
+/** The page's window.dataSportsSchedule.sport (football by day), a game each, with only what the app shows. */
+function agendaGames(html) {
+  var at = html.indexOf('window.dataSportsSchedule'), from = html.indexOf('sport:', at), to = html.indexOf('multisport:', from);
+  if (at < 0 || from < 0 || to < 0) return null;
+  var days = null;
+  try { days = JSON.parse(html.slice(from + 6, to).replace(/[\s,]+$/, '')); } catch (e) { return null; }
+  var out = [];
+  Object.keys(days).forEach(function (day) {
+    (days[day].championshipsAgenda || []).forEach(function (c) {
+      ['past', 'now', 'future'].forEach(function (when) {
+        (c[when] || []).forEach(function (e) {
+          var m = e.match, s = m && m.scoreboard;
+          if (!m || !m.firstContestant || !m.secondContestant) return;
+          out.push({id: m.id, day: m.startDate, hour: String(m.startHour || '').slice(0, 5), moment: m.moment,
+            champ: (c.championship && c.championship.name) || '', venue: (m.location && m.location.popularName) || '',
+            home: m.firstContestant.popularName, homeCrest: m.firstContestant.badgePng || '',
+            away: m.secondContestant.popularName, awayCrest: m.secondContestant.badgePng || '',
+            score: s && s.home !== null && s.home !== undefined ? [s.home, s.away] : null,
+            watch: (m.liveWatchSources || []).map(function (w) { return {name: w.name, logo: w.officialLogoUrl || w.highlightLogoUrl || ''}; })});
+        });
+      });
+    });
+  });
+  return out;
+}
+
+service.register('agenda', function (message) {
+  agenda(function (games) {
+    if (games) message.respond({returnValue: true, games: games});
+    else message.respond({returnValue: false, errorText: 'No agenda from ge.globo'});
+  });
+});
+
 service.register('ssap', function (message) {
   var p = message.payload || {};
   // Only the app list, the one call the page makes: nothing else goes to the TV's API, nor gets its client key.

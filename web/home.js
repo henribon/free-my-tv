@@ -354,11 +354,11 @@
 
   // MARK: - Focus
 
-  var Z = {TOP: 'top', CARDS: 'cards', SHELF: 'shelf', DRAWER: 'drawer', GAMES: 'games', APPS: 'apps', SETTINGS: 'settings', EDIT: 'edit', LANG: 'lang', CITY: 'city', KEY: 'key', ABOUT: 'about'};
+  var Z = {TOP: 'top', CARDS: 'cards', SHELF: 'shelf', DRAWER: 'drawer', GAMES: 'games', APPS: 'apps', SETTINGS: 'settings', EDIT: 'edit', LANG: 'lang', CITY: 'city', KEY: 'key', ABOUT: 'about', MATCH: 'match'};
   var st = {zone: Z.SHELF, top: 0, tab: 0, card: 0, shelf: 0, drawer: 0, game: 0, grid: 0, row: 0, edit: 0, lang: 0, city: 0, key: 0};
   var cards = [];
 
-  function sheetOpen() { return st.zone === Z.APPS || st.zone === Z.SETTINGS || st.zone === Z.EDIT || st.zone === Z.LANG || st.zone === Z.CITY || st.zone === Z.KEY || st.zone === Z.ABOUT; }
+  function sheetOpen() { return st.zone === Z.APPS || st.zone === Z.SETTINGS || st.zone === Z.EDIT || st.zone === Z.LANG || st.zone === Z.CITY || st.zone === Z.KEY || st.zone === Z.ABOUT || st.zone === Z.MATCH; }
 
   function updateFocus() {
     var i, list;
@@ -391,7 +391,7 @@
     if (langHint) langHint.textContent = (st.lang + 1) + ' / ' + languageChoices().length + '  ·  ' + tr('OK picks, Back cancels.');
     focusRows($('citypick'), st.city, st.zone === Z.CITY);
     focusRows($('keypick'), st.key, st.zone === Z.KEY);
-    setClass(body, 'drawer-open', st.zone === Z.DRAWER || st.zone === Z.GAMES);
+    setClass(body, 'drawer-open', st.zone === Z.DRAWER || st.zone === Z.GAMES || st.zone === Z.MATCH);
     followSoon();
   }
 
@@ -708,9 +708,9 @@
     if (!day.today) el('div', 'side', card, Data.weekday(day.list[0].at));
     var holder = el('div', 'rows', el('div', 'list', card));
     for (var i = 0; i < day.list.length; i++) {
-      var g = day.list[i], row = el('div', 'game' + (g.state === 'in' ? ' live' : g.state === 'post' ? ' over' : '') + (g.tennis ? ' tennis' : ''), holder);
+      var g = day.list[i], row = el('div', 'game' + (g.state === 'in' ? ' live' : g.state === 'post' ? ' over' : '') + (g.tennis ? ' tennis' : '') + (g.star ? ' star' : ''), holder);
       row.style.top = (i * GAME_STEP) + 'px';
-      el('span', 'at', row, g.state !== 'in' ? Data.time(g.at) : g.clock === 'half' ? tr('Half-time') : g.clock || '●');
+      el('span', 'at', row, gameStatus(g));
       team(row, 'home', g.home);
       el('span', 'score', row, g.state === 'pre' ? '×' : g.tennis ? g.sets : g.home.score + ' × ' + g.away.score);
       team(row, 'away', g.away);
@@ -718,7 +718,7 @@
       setClass(row, 'focus', st.zone === Z.GAMES && st.game === i);   // drawn again each minute while one is on
       hover(row, Z.GAMES, i);
     }
-    if (st.zone !== Z.GAMES) {
+    if (st.zone !== Z.GAMES && st.zone !== Z.MATCH) {
       st.game = 0;
       while (st.game < day.list.length - 1 && day.list[st.game].state === 'post') st.game++;
     }
@@ -732,6 +732,53 @@
     if (side.crest) img.src = side.crest;
     else img.style.visibility = 'hidden';
     if (cls === 'home') { s.appendChild(name); s.appendChild(img); } else { s.appendChild(img); s.appendChild(name); }
+  }
+
+  // MARK: - A game, with where it's on (OK on it in the games panel)
+
+  var matchShown = null;
+
+  function gameStatus(g) {
+    return g.state !== 'in' ? Data.time(g.at) : g.clock === 'half' ? tr('Half-time') : g.clock || '●';
+  }
+
+  function renderMatch(g) {
+    var box = $('match').firstChild;
+    box.innerHTML = '';
+    el('div', 'what', box, g.venue ? g.tag + '  ·  ' + g.venue : g.tag);
+    var teams = el('div', 'teams', box);
+    team(teams, 'home', g.home);
+    el('span', 'score', teams, g.state === 'pre' ? '×' : g.tennis ? g.sets || '×' : g.home.score + ' × ' + g.away.score);
+    team(teams, 'away', g.away);
+    el('div', 'when' + (g.state === 'in' ? ' live' : ''), box, gameStatus(g));
+    var head = el('div', 'head', box, tr('Where to watch')), where = Data.whereToWatch(g);
+    if (where && where.usual) el('span', 'usual', head, tr('Usually'));
+    if (!where) el('div', 'none', box, tr("No word yet on where it's shown."));
+    for (var i = 0; where && i < where.list.length; i++) {
+      var w = where.list[i], row = el('div', 'channel', box);
+      if (w.logo) {
+        var img = el('img', 'logo', row);
+        img.onerror = function () { this.style.display = 'none'; };
+        img.src = w.logo;
+      } else sym('tv', row);
+      el('span', '', row, w.name);
+    }
+    el('div', 'hint', box, tr('Back closes.'));
+  }
+
+  function openMatch(g) {
+    matchShown = g;
+    st.zone = Z.MATCH;
+    renderMatch(g);
+    setClass($('match'), 'open', true);
+    updateFocus();
+  }
+
+  function closeMatch() {
+    setClass($('match'), 'open', false);
+    matchShown = null;
+    st.zone = gameRows.length ? Z.GAMES : Z.DRAWER;
+    updateFocus();
   }
 
   /** Keeps the focused game in the panel's four rows; without the focus, they start at the first game not over. */
@@ -837,6 +884,7 @@
     setClass($('shelfedit'), 'open', false);
     setClass($('langpick'), 'open', false);
     setClass($('about'), 'open', false);
+    setClass($('match'), 'open', false);
     closeField('citypick');
     closeField('keypick');
     setClass($('citypick'), 'open', false);
@@ -1441,6 +1489,12 @@
       case Z.ABOUT:
         closeAbout();
         return;
+      case Z.GAMES:
+        if (gameRows[st.game]) openMatch(gameRows[st.game]);
+        return;
+      case Z.MATCH:
+        closeMatch();
+        return;
     }
   }
 
@@ -1535,6 +1589,7 @@
     if (st.zone === Z.CITY) { closeCities(false); return; }
     if (st.zone === Z.KEY) { if (keyAsking) askRemoveKey(false); else closeKey(); return; }
     if (st.zone === Z.ABOUT) { closeAbout(); return; }
+    if (st.zone === Z.MATCH) { closeMatch(); return; }
     if (sheetOpen()) { closeSheets(); return; }
     if (st.zone === Z.GAMES) { st.zone = Z.DRAWER; updateFocus(); return; }
     if (st.zone === Z.DRAWER) { closeDrawer(); return; }
@@ -1545,7 +1600,7 @@
   /** The pointer focuses what it's over (the Magic Remote, or a mouse when previewing). */
   function hover(node, zone, index) {
     node.onmouseover = function () {
-      if (saverOn || (sheetOpen() !== (zone === Z.APPS || zone === Z.SETTINGS || zone === Z.EDIT || zone === Z.LANG || zone === Z.CITY || zone === Z.KEY || zone === Z.ABOUT))) return;
+      if (saverOn || (sheetOpen() !== (zone === Z.APPS || zone === Z.SETTINGS || zone === Z.EDIT || zone === Z.LANG || zone === Z.CITY || zone === Z.KEY || zone === Z.ABOUT || zone === Z.MATCH))) return;
       var inDrawer = st.zone === Z.DRAWER || st.zone === Z.GAMES;
       if ((zone === Z.DRAWER || zone === Z.GAMES) && !inDrawer) return;
       if (zone !== Z.DRAWER && zone !== Z.GAMES && inDrawer && zone !== Z.SHELF) return;
@@ -1821,6 +1876,8 @@
     renderCards();
     renderPanels();
     checkNight();
+    // The open game with its new minute and score, and where it's on once that comes.
+    for (var i = 0; matchShown && i < gameRows.length; i++) if (gameRows[i].id === matchShown.id) renderMatch(matchShown = gameRows[i]);
   });
 
   /** drawer_first: the home screen rests with the drawer open (shelf in the middle, inputs and weather below). */

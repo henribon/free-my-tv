@@ -490,6 +490,13 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 #games .tag { position: absolute; right: 14px; top: 14px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; font-size: 19px; color: #8E8E93; }
 #games .over .n, #games .over .score { color: #6E6E73; }
 .drawer-open #drawer .game { pointer-events: auto; }
+/* Botafogo, Portuguesa, two of tennis's top 10, a big final: a gold edge, and first in the list. */
+#games .star { background: rgba(255, 184, 0, 0.16); box-shadow: inset 5px 0 0 #E5A200; }
+#games .star.focus { background: rgba(255, 184, 0, 0.3); }
+#games .star .tag { color: #A87400; font-weight: 600; }
+.night #games .star { background: rgba(255, 196, 0, 0.14); box-shadow: inset 5px 0 0 #FFC400; }
+.night #games .star.focus { background: rgba(255, 196, 0, 0.28); }
+.night #games .star .tag { color: #FFD24D; }
 .night #games .game.focus { background: rgba(255, 255, 255, 0.14); }
 .night #games .at, .night #games .over .n, .night #games .over .score { color: rgba(255, 255, 255, 0.62); }
 .night #games .live .at { color: #FF453A; }
@@ -532,7 +539,7 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .cell.focus .face { -webkit-transform: scale(1.08); transform: scale(1.08); box-shadow: 0 16px 34px rgba(0, 0, 0, 0.55), inset 0 0 0 2px rgba(255, 255, 255, 0.4); }
 .cell.focus .label { color: #FFF; }
 
-#settings .box, #shelfedit .box, #langpick .box, #citypick .box, #keypick .box, #about .box {
+#settings .box, #shelfedit .box, #langpick .box, #citypick .box, #keypick .box, #about .box, #match .box {
   position: absolute;
   left: 560px;
   top: 150px;
@@ -572,6 +579,26 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 #citypick .row.field input::placeholder, #keypick .row.field input::placeholder { color: rgba(255, 255, 255, 0.4); }
 #citypick .row { overflow: hidden; text-overflow: ellipsis; }
 #about .row .value.cut { overflow: hidden; text-overflow: ellipsis; }
+
+/* A game: who, when, and where it's on. */
+#match .box { left: 460px; width: 1000px; text-align: center; }
+#match .what { font-size: 24px; font-weight: 500; color: rgba(255, 255, 255, 0.6); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#match .teams { position: relative; height: 96px; margin-top: 18px; font-size: 40px; font-weight: 700; white-space: nowrap; }
+#match .team { position: absolute; top: 18px; width: 380px; overflow: hidden; }
+#match .home { left: 0; text-align: right; }
+#match .away { right: 0; text-align: left; }
+#match .crest { display: inline-block; width: 60px; height: 60px; vertical-align: middle; }
+#match .n { display: inline-block; max-width: 290px; margin: 0 16px; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
+#match .score { position: absolute; left: 380px; width: 180px; top: 26px; font-size: 40px; -webkit-font-feature-settings: 'tnum'; font-feature-settings: 'tnum'; }
+#match .when { font-size: 28px; font-weight: 600; color: rgba(255, 255, 255, 0.85); -webkit-font-feature-settings: 'tnum'; font-feature-settings: 'tnum'; }
+#match .when.live { color: #FF453A; }
+#match .head { margin: 34px 0 14px; padding-top: 26px; border-top: 2px solid rgba(255, 255, 255, 0.1); font-size: 30px; font-weight: 700; }
+#match .usual { margin-left: 14px; font-size: 22px; font-weight: 500; color: rgba(255, 255, 255, 0.5); }
+#match .channel { display: inline-block; margin: 8px 12px; padding: 0 24px 0 14px; height: 70px; line-height: 70px; border-radius: 20px; background: rgba(255, 255, 255, 0.1); font-size: 28px; font-weight: 600; white-space: nowrap; }
+#match .channel .logo { width: 46px; height: 46px; margin-right: 14px; border-radius: 10px; vertical-align: middle; }
+#match .channel .sym { width: 34px; height: 34px; margin: 0 14px 0 6px; vertical-align: -6px; }
+#match .none { font-size: 26px; color: rgba(255, 255, 255, 0.6); }
+#match .hint { text-align: center; padding-top: 24px; }
 .box .hint { padding: 14px 18px 0; font-size: 22px; font-weight: 500; color: rgba(255, 255, 255, 0.5); }
 .box .hint.warn { color: #FFC266; }
 .box .hint.steps { white-space: pre-line; line-height: 1.4; }

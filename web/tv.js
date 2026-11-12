@@ -613,6 +613,11 @@ var TV = (function () {
       if (webos) luna('luna://' + self + '.service/homekey', {on: on, again: !!again});
     },
 
+    /** LG: Brazil's football agenda with where each game is on (ge.globo, read by the service); done(list) or done(null). */
+    agenda: function (done) {
+      luna('luna://' + self + '.service/agenda', {}, function (res) { done(res && res.games ? res.games : null); });
+    },
+
     /** LG: LG's own home screen, which the Home button's helper then leaves on screen until another app opens; done(ok). */
     lgHome: function (done) {
       luna('luna://' + self + '.service/homekey', {lg: true}, function (res) { done(!!res || !webos); });

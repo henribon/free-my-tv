@@ -327,7 +327,7 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
 - Continue Watching gets `READ_TV_LISTINGS` with `pm grant` through the TV's own ADB only when picked in Home Settings;
   *Original* revokes it with `pm revoke`. Watch Next pictures load only from the TV (`content://`, `android.resource://`),
   never from the network. The app talks only to TMDB, Open-Meteo, Binance, ESPN (the LG and Samsung games panel, on TVs
-  in Brazil), Watchmode (with a `watchmode_key`), your Plex
+  in Brazil), ge.globo's agenda page (the same panel, on LG, through the service), Watchmode (with a `watchmode_key`), your Plex
   server (with a `plex_url`), your Immich server (with `immich_server` and its key), Trakt (with a `trakt_client_id`,
   once the person signs in on the TV) and GitHub's releases (Updates): new sources (such as Stremio) must not add
   network calls without the owner's OK.
@@ -600,7 +600,12 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   The games panel (`Data.gameDay`, on by default when the time zone is in Brazil): ESPN's public scoreboards
   (site.api.espn.com, no key, any origin), each source again every minute while one of its games is on. Soccer asks
   the league's own day (today's games, or the next day with any); tennis asks for today and keeps semifinals, finals,
-  the Finals and Brazilians. `SOURCES` in `web/data.js` says what's followed (team ids are ESPN's); ESPN has neither
-  Série D nor the Copa Paulista. Next to it the weather card shows fewer hours and the prices card steps aside.
+  the Finals, two of the top 10 (ESPN's rankings, once a day) and Brazilians. `SOURCES` in `web/data.js` says what's
+  followed (team ids are ESPN's); `star` marks Botafogo, Portuguesa, top-10 matches and big finals, sorted first.
+  Next to it the weather card shows fewer hours and the prices card steps aside. OK on a game shows where it's on:
+  ESPN has no Brazilian channels, so the LG service's `agenda` reads ge.globo.com/agenda/, whose page carries five
+  days of football as JSON (`window.dataSportsSchedule.sport`, each game's `liveWatchSources`) and answers no other
+  origin, every hour; games are matched by time and names (`inAgenda`). It also brings Portuguesa's games ESPN lacks
+  (Série D, Copa Paulista). ge has no tennis: the ATP and WTA tours' usual Brazilian channels are written in.
   `tools/webapp.py` is what both builds share. Preview: `python3 webos/build.py --preview` (or `tizen/build.py`), then
   open `out/webos/index.html` in a browser (a stand-in lists sample apps).

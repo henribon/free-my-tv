@@ -326,21 +326,28 @@ var Data = (function () {
   // MARK: - Games (ESPN's public scoreboards: no key, and they answer any origin)
 
   // What the games panel follows: every game of the Brasileirão's Série A and B, the São Paulo and Rio derbies of the
-  // state championships, Portuguesa's games wherever ESPN has them (not in Série D or the Copa Paulista), and the big
-  // tennis of the day: semifinals, finals, the season's Finals and every match with a Brazilian in it.
+  // state championships, Botafogo and Portuguesa wherever ESPN has them (Portuguesa's Série D and Copa Paulista come
+  // from ge.globo's agenda, below), and the big tennis of the day: semifinals, finals, the season's Finals, two of the
+  // top 10 against each other and every match with a Brazilian in it. Botafogo, Portuguesa, two of the top 10 and the
+  // finals of the big tournaments are highlighted (`star`), and come first.
   var ESPN = 'https://site.api.espn.com/apis/site/v2/sports/';
-  var LUSA = '4773', SP_BIG = ['874', '2029', '2026', '2674'], RJ_BIG = ['819', '3445', '3454', '6086'];
+  var LUSA = '4773', BOTAFOGO = '6086', SP_BIG = ['874', '2029', '2026', '2674'], RJ_BIG = ['819', '3445', '3454', '6086'];
+  var STARS = [BOTAFOGO, LUSA];
   function derby(big, a, b) { return big.indexOf(a) >= 0 && big.indexOf(b) >= 0; }
-  function lusa(a, b) { return a === LUSA || b === LUSA; }
+  function starred(a, b) { return STARS.indexOf(a) >= 0 || STARS.indexOf(b) >= 0; }
   var SOURCES = [
     {path: 'soccer/bra.1', tag: 'Série A'},
     {path: 'soccer/bra.2', tag: 'Série B'},
-    {path: 'soccer/bra.camp.paulista', tag: 'Paulistão', keep: function (a, b) { return derby(SP_BIG, a, b) || lusa(a, b); }},
-    {path: 'soccer/bra.camp.carioca', tag: 'Carioca', keep: function (a, b) { return derby(RJ_BIG, a, b); }},
-    {path: 'soccer/bra.copa_do_brazil', tag: 'Copa do Brasil', keep: lusa},
+    {path: 'soccer/bra.camp.paulista', tag: 'Paulistão', keep: function (a, b) { return derby(SP_BIG, a, b) || starred(a, b); }},
+    {path: 'soccer/bra.camp.carioca', tag: 'Carioca', keep: function (a, b) { return derby(RJ_BIG, a, b) || starred(a, b); }},
+    {path: 'soccer/bra.copa_do_brazil', tag: 'Copa do Brasil', keep: starred},
+    {path: 'soccer/conmebol.libertadores', tag: 'Libertadores', keep: starred},
+    {path: 'soccer/conmebol.sudamericana', tag: 'Sul-Americana', keep: starred},
     {path: 'tennis/atp', tag: 'ATP', tennis: true},
     {path: 'tennis/wta', tag: 'WTA', tennis: true}
   ];
+  // Tennis's big tournaments, whose finals are highlighted: the Grand Slams, the 1000s and the Finals.
+  var BIG_TENNIS = /Australian Open|Roland Garros|French Open|Wimbledon|US Open|\bFinals\b|Masters|Indian Wells|BNP Paribas Open|Miami Open|Madrid|Internazionali|Italian Open|Canadian Open|National Bank Open|Omnium Banque|Cincinnati|Shanghai|Qatar|Doha|Dubai|Wuhan|China Open/;
 
   /** ESPN's "2026-11-19T22:30Z" → epoch ms. */
   function espnTime(iso) {
@@ -383,7 +390,8 @@ var Data = (function () {
       var state = gameState(c.status || e.status);
       if (!state) continue;
       out.push({id: e.id, at: espnTime(c.date || e.date), state: state, clock: gameClock(c.status || e.status), tag: src.tag,
-        home: club(home), away: club(away)});
+        home: club(home), away: club(away), venue: (c.venue && c.venue.fullName) || '',
+        star: starred(String(home.team.id), String(away.team.id))});
     }
     return out;
   }
@@ -418,16 +426,42 @@ var Data = (function () {
           if (dayOf(at) !== today || !c.competitors || c.competitors.length !== 2) continue;
           var cs = c.competitors.slice().sort(function (a, b) { return (a.order || 0) - (b.order || 0); });
           var br = people(cs[0]).concat(people(cs[1])).some(brazilian);
-          if (!br && !(singles && (/^(Semifinal|Final)$/.test(round) || /\bFinals\b/.test(e.name || '')))) continue;
+          var top = singles && topTen(src, cs[0].id) && topTen(src, cs[1].id), bigFinal = singles && round === 'Final' && BIG_TENNIS.test(e.name || '');
+          if (!br && !top && !(singles && (/^(Semifinal|Final)$/.test(round) || /\bFinals\b/.test(e.name || '')))) continue;
           var state = gameState(c.status);
           if (!state) continue;
           var where = /\bFinals\b/.test(e.name || '') ? 'Finals' : ((c.venue && c.venue.fullName) || '').split(',')[0] || e.name || '';
           out.push({id: c.id, at: at, state: state, clock: '', tag: src.tag + ' ' + where,
+            venue: (c.venue && c.venue.court) || '', star: top || bigFinal,
             tennis: true, home: player(cs[0]), away: player(cs[1]), sets: sets(cs)});
         }
       }
     }
     return out;
+  }
+
+  // The top 10 of each tour (ESPN's athlete ids, the competitors' ids in singles), once a day: 380 KB each.
+  var ranks = stored('ranks') || {at: 0}, fetchingRanks = false;
+
+  function topTen(src, id) { return (ranks[src.tag] || []).indexOf(String(id)) >= 0; }
+
+  function refreshRanks() {
+    var now = Date.now();
+    if (fetchingRanks || (dayOf(ranks.at) === dayOf(now) && now >= ranks.at)) return;
+    fetchingRanks = true;
+    var tours = ['ATP', 'WTA'], next = {at: now}, left = tours.length;
+    tours.forEach(function (tour) {
+      get(ESPN + 'tennis/' + tour.toLowerCase() + '/rankings', {}, function (err, body) {
+        var list = (!err && body && body.rankings && body.rankings[0] && body.rankings[0].ranks) || [];
+        next[tour] = list.filter(function (r) { return r.current <= 10 && r.athlete; }).map(function (r) { return String(r.athlete.id); });
+        if (--left) return;
+        fetchingRanks = false;
+        if (!next.ATP.length && !next.WTA.length) return;   // offline: again on the next refresh
+        ranks = next;
+        store('ranks', ranks);
+        gamesAt['tennis/atp'] = gamesAt['tennis/wta'] = 0;   // the day's matches again, with the ranking
+      });
+    });
   }
 
   /** "6-4 3-6 2-1": the sets so far, first player's games first. */
@@ -455,7 +489,10 @@ var Data = (function () {
   }
 
   function refreshGames() {
-    if (!Prefs.sports() || fetchingGames) return;
+    if (!Prefs.sports()) return;
+    refreshRanks();
+    refreshAgenda();
+    if (fetchingGames) return;
     var now = Date.now(), due = [];
     for (var i = 0; i < SOURCES.length; i++) {
       var at = gamesAt[SOURCES[i].path] || 0;
@@ -477,16 +514,100 @@ var Data = (function () {
     });
   }
 
-  /** The games to show: today's, or else the next day's, in time order: {today, list}. */
+  // Where each football game is on: ge.globo's agenda (five days, with TV channels and streaming services), which only
+  // the LG service can read (the page answers no other origin). Every hour, and again on a new day.
+  var agenda = stored('agenda') || {at: 0, games: []}, fetchingAgenda = false;
+
+  function refreshAgenda() {
+    var now = Date.now();
+    if (TV.name !== 'webos' || fetchingAgenda || (now - agenda.at < 60 * 60000 && now >= agenda.at && dayOf(agenda.at) === dayOf(now))) return;
+    fetchingAgenda = true;
+    TV.agenda(function (list) {
+      fetchingAgenda = false;
+      agenda = {at: Date.now(), games: list || agenda.games};
+      if (!list) agenda.at -= 50 * 60000;   // no answer: again in 10 minutes
+      store('agenda', agenda);
+      if (list) changed();
+    });
+  }
+
+  /** ge.globo's day and hour (Brasília, UTC−3 all year since 2019) → epoch ms. */
+  function agendaTime(a) {
+    var d = /^(\d+)-(\d+)-(\d+)$/.exec(a.day || ''), h = /^(\d+):(\d+)/.exec(a.hour || '');
+    return d && h ? Date.UTC(+d[1], d[2] - 1, +d[3], +h[1] + 3, +h[2]) : 0;
+  }
+
+  /** "Atlético-MG" → "atletico mg": names compared without accents, case or punctuation. */
+  function plain(name) {
+    return String(name || '').toLowerCase().replace(/[áàâã]/g, 'a').replace(/[éê]/g, 'e').replace(/í/g, 'i')
+        .replace(/[óôõ]/g, 'o').replace(/ú/g, 'u').replace(/ç/g, 'c').replace(/[^a-z0-9]+/g, ' ').trim();
+  }
+
+  /** 2 for the same name ("Operário PR", "Operário-PR"), 1 when one starts the other ("Athletic", "Athletic Club"), else 0. */
+  function sameTeam(a, b) {
+    a = plain(a);
+    b = plain(b);
+    if (!a || !b) return 0;
+    return a === b ? 2 : a.indexOf(b + ' ') === 0 || b.indexOf(a + ' ') === 0 ? 1 : 0;
+  }
+
+  /** ESPN's game in ge.globo's agenda: within half an hour, both names alike or one the same (not Botafogo for Botafogo-SP). */
+  function inAgenda(g) {
+    for (var i = 0; i < agenda.games.length; i++) {
+      var a = agenda.games[i];
+      if (Math.abs(agendaTime(a) - g.at) <= 30 * 60000 && sameTeam(a.home, g.home.name) + sameTeam(a.away, g.away.name) >= 2) return a;
+    }
+    return null;
+  }
+
+  /** "Campeonato Brasileiro Série D" → "Série D": the agenda's championships, short. */
+  function agendaTag(champ) {
+    return champ === 'Campeonato Brasileiro' ? 'Série A' : champ.replace(/^Campeonato Brasileiro /, '').replace(/^Campeonato /, '');
+  }
+
+  /** Portuguesa's games that only ge.globo has (Série D, Copa Paulista), as the panel's games. */
+  function agendaOnly(espn) {
+    var out = [], covered = espn.map(function (g) { return g.tennis ? null : inAgenda(g); });
+    agenda.games.forEach(function (a) {
+      if ((plain(a.home) !== 'portuguesa' && plain(a.away) !== 'portuguesa') || covered.indexOf(a) >= 0) return;
+      var score = a.score || ['', ''];
+      out.push({id: 'ge' + a.id, at: agendaTime(a), state: a.moment === 'NOW' ? 'in' : a.moment === 'PAST' ? 'post' : 'pre', clock: '',
+        tag: agendaTag(a.champ), venue: a.venue, star: true,
+        home: {name: a.home, crest: a.homeCrest, score: String(score[0])}, away: {name: a.away, crest: a.awayCrest, score: String(score[1])}});
+    });
+    return out;
+  }
+
+  /**
+   * Where a game is on: {list: [{name, logo}], usual} or null when nobody says. Football from ge.globo's agenda; tennis
+   * isn't in it, and in Brazil the ATP and WTA tours are on ESPN and Disney+ (2026): `usual`, as a rule, not this match.
+   */
+  function whereToWatch(g) {
+    if (g.tennis) return {usual: true, list: [{name: 'ESPN', logo: ''}, {name: 'Disney+', logo: ''}]};
+    var a = String(g.id).indexOf('ge') === 0 ? findAgenda(g.id.slice(2)) : inAgenda(g);
+    return a && a.watch && a.watch.length ? {list: a.watch, usual: false} : null;
+  }
+
+  function findAgenda(id) {
+    for (var i = 0; i < agenda.games.length; i++) if (String(agenda.games[i].id) === id) return agenda.games[i];
+    return null;
+  }
+
+  /** The games to show: today's, or else the next day's: the highlighted ones not over first, then by time. {today, list} */
   function gameDay() {
     var all = [], now = Date.now(), today = dayOf(now);
     for (var i = 0; i < SOURCES.length; i++) all = all.concat(games[SOURCES[i].path] || []);
-    all.sort(function (a, b) { return a.at - b.at || (a.tag < b.tag ? -1 : a.tag > b.tag ? 1 : 0); });
+    all = all.concat(agendaOnly(all));
+    function first(g) { return g.star && g.state !== 'post' ? 0 : 1; }
+    all.sort(function (a, b) { return first(a) - first(b) || a.at - b.at || (a.tag < b.tag ? -1 : a.tag > b.tag ? 1 : 0); });
     var list = all.filter(function (g) { return dayOf(g.at) === today; });
     if (list.length) return {today: true, list: list};
     var next = all.filter(function (g) { return g.at > now; });
+    next.sort(function (a, b) { return a.at - b.at; });
     var day = next.length ? dayOf(next[0].at) : 0;
-    return {today: false, list: next.filter(function (g) { return dayOf(g.at) === day; })};
+    next = next.filter(function (g) { return dayOf(g.at) === day; });
+    next.sort(function (a, b) { return first(a) - first(b) || a.at - b.at; });
+    return {today: false, list: next};
   }
 
   // MARK: - Picks (TMDB)
@@ -829,6 +950,7 @@ var Data = (function () {
     /** The games panel turned on or off. */
     sportsChanged: function () { refreshGames(); changed(); },
     gameDay: gameDay,
+    whereToWatch: whereToWatch,
     findCity: findCity,
     /** Another city picked: its weather now (none shown until it comes). */
     cityChanged: function () { weather = null; weatherAt = 0; refreshWeather(); changed(); },
