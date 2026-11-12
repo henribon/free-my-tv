@@ -112,6 +112,15 @@ service.register('homekey', function (message) {
   var on = !(message.payload && message.payload.on === false);
   var activity = null;
   function answer(result) { message.respond({returnValue: true, on: on, result: result, activity: activity}); }
+  if (message.payload && message.payload.lg) {
+    // LG's home screen on purpose: the helper (if it runs) first hears not to cover it.
+    tellHomekey('lg', function () {
+      service.call('luna://com.webos.applicationManager/launch', {id: 'com.webos.app.home'}, function (reply) {
+        message.respond({returnValue: reply.payload.returnValue !== false, result: reply.payload});
+      });
+    });
+    return;
+  }
   function running() {
     tellHomekey('ping', function (yes) { if (yes) answer('running'); else startHomekey(answer); });
   }

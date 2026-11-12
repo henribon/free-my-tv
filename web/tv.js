@@ -613,6 +613,11 @@ var TV = (function () {
       if (webos) luna('luna://' + self + '.service/homekey', {on: on, again: !!again});
     },
 
+    /** LG: LG's own home screen, which the Home button's helper then leaves on screen until another app opens; done(ok). */
+    lgHome: function (done) {
+      luna('luna://' + self + '.service/homekey', {lg: true}, function (res) { done(!!res || !webos); });
+    },
+
     /** Back on the first screen: back to wherever the person came from. */
     back: function () {
       if (samsung) {

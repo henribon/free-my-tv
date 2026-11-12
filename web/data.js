@@ -2,7 +2,8 @@
  * What the home screen shows, kept in localStorage so it opens with numbers:
  *  - the picks: what's trending this week and recent releases, only from the streaming apps on this TV (TMDB, with
  *    the person's own free key from config.properties), 3 per hour (up to 6 in Home Settings);
- *  - weather, sunrise and sunset (Open-Meteo, every 30 min) and optional crypto prices (Binance, every 5 min).
+ *  - weather, sunrise and sunset (Open-Meteo, every 30 min) and optional crypto prices (Binance, every 5 min);
+ *  - the day's games (ESPN's scoreboards, every minute while one is on), on TVs in Brazil.
  * Settings changed on the TV (Prefs) win over config.properties, as on Android. Built without a city (--generic), the
  * TV's time zone gives the city, and its country the currency and the region (zones.js).
  */
@@ -80,6 +81,8 @@ var Prefs = (function () {
     /** The weather card's forecast: 'hours' (the next 6 hours) or 'days' (the next 5 days). */
     forecast: function () { return pick('forecast', 'hours') === 'days' ? 'days' : 'hours'; },
     quotes: function () { return pick('quotes', CONFIG.showCrypto !== false); },
+    /** The games panel (Brazil's football and tennis, from ESPN): on by default on TVs in Brazil. */
+    sports: function () { return pick('sports', Place.country === 'BR') === true; },
     coin: function (i) { var c = pick('coins', null); return c ? c[i] !== false : true; },
     /** Picks per tab: 3 (as it was) up to 6. */
     cards: function () { var n = pick('cards', 3); return n < 3 ? 3 : n > 6 ? 6 : n; },
@@ -318,6 +321,172 @@ var Data = (function () {
         changed();
       });
     })(0);
+  }
+
+  // MARK: - Games (ESPN's public scoreboards: no key, and they answer any origin)
+
+  // What the games panel follows: every game of the Brasileirão's Série A and B, the São Paulo and Rio derbies of the
+  // state championships, Portuguesa's games wherever ESPN has them (not in Série D or the Copa Paulista), and the big
+  // tennis of the day: semifinals, finals, the season's Finals and every match with a Brazilian in it.
+  var ESPN = 'https://site.api.espn.com/apis/site/v2/sports/';
+  var LUSA = '4773', SP_BIG = ['874', '2029', '2026', '2674'], RJ_BIG = ['819', '3445', '3454', '6086'];
+  function derby(big, a, b) { return big.indexOf(a) >= 0 && big.indexOf(b) >= 0; }
+  function lusa(a, b) { return a === LUSA || b === LUSA; }
+  var SOURCES = [
+    {path: 'soccer/bra.1', tag: 'Série A'},
+    {path: 'soccer/bra.2', tag: 'Série B'},
+    {path: 'soccer/bra.camp.paulista', tag: 'Paulistão', keep: function (a, b) { return derby(SP_BIG, a, b) || lusa(a, b); }},
+    {path: 'soccer/bra.camp.carioca', tag: 'Carioca', keep: function (a, b) { return derby(RJ_BIG, a, b); }},
+    {path: 'soccer/bra.copa_do_brazil', tag: 'Copa do Brasil', keep: lusa},
+    {path: 'tennis/atp', tag: 'ATP', tennis: true},
+    {path: 'tennis/wta', tag: 'WTA', tennis: true}
+  ];
+
+  /** ESPN's "2026-11-19T22:30Z" → epoch ms. */
+  function espnTime(iso) {
+    var m = /^(\d+)-(\d+)-(\d+)T(\d+):(\d+)/.exec(iso || '');
+    return m ? Date.UTC(+m[1], m[2] - 1, +m[3], +m[4], +m[5]) : 0;
+  }
+
+  /** The day on the TV's clock, as ESPN's dates take it: 20261119. */
+  function dayOf(at) {
+    var d = new Date(at);
+    return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+  }
+
+  /** A crest or flag from ESPN (500 px) through its own resizer: a few KB instead of a hundred. */
+  function crest(url) {
+    var m = /^https?:\/\/a\.espncdn\.com(\/i\/[^?]+\.png)$/.exec(url || '');
+    return m ? 'https://a.espncdn.com/combiner/i?img=' + m[1] + '&w=64&h=64' : url || '';
+  }
+
+  /** 'pre', 'in' or 'post'; '' for a game that won't be played (postponed, canceled). Half-time keeps its clock 'half'. */
+  function gameState(status) {
+    var t = (status && status.type) || {};
+    if (/POSTPONED|CANCELED|ABANDONED/.test(t.name || '')) return '';
+    return t.state === 'in' || t.state === 'post' ? t.state : 'pre';
+  }
+
+  function gameClock(status) {
+    var t = (status && status.type) || {};
+    return t.name === 'STATUS_HALFTIME' ? 'half' : (status && status.displayClock) || '';
+  }
+
+  function soccerGames(src, body) {
+    var out = [], events = (body && body.events) || [];
+    for (var i = 0; i < events.length; i++) {
+      var e = events[i], c = e.competitions && e.competitions[0];
+      if (!c || !c.competitors || c.competitors.length !== 2) continue;
+      var home = c.competitors[0].homeAway === 'away' ? c.competitors[1] : c.competitors[0];
+      var away = home === c.competitors[0] ? c.competitors[1] : c.competitors[0];
+      if (!home.team || !away.team || (src.keep && !src.keep(String(home.team.id), String(away.team.id)))) continue;
+      var state = gameState(c.status || e.status);
+      if (!state) continue;
+      out.push({id: e.id, at: espnTime(c.date || e.date), state: state, clock: gameClock(c.status || e.status), tag: src.tag,
+        home: club(home), away: club(away)});
+    }
+    return out;
+  }
+
+  function club(x) {
+    return {name: x.team.shortDisplayName || x.team.displayName || '', crest: crest(x.team.logo), score: x.score === undefined ? '' : String(x.score)};
+  }
+
+  function people(x) { return x.athlete ? [x.athlete] : (x.roster && x.roster.athletes) || []; }
+
+  function brazilian(a) { return !!(a && a.flag && a.flag.alt === 'Brazil'); }
+
+  /** "B. Shelton" → "Shelton"; a doubles pair "Matos / Melo", under the Brazilian's flag when there's one. */
+  function player(x) {
+    var list = people(x), names = [], flag = list[0];
+    for (var i = 0; i < list.length; i++) {
+      names.push(String(list[i].shortName || list[i].displayName || '').replace(/^[^\s.]+\.\s*/, ''));
+      if (brazilian(list[i])) flag = list[i];
+    }
+    return {name: names.join(' / '), crest: crest(flag && flag.flag && flag.flag.href), score: ''};
+  }
+
+  /** Today's matches worth showing, from the tournaments of the day (each one lists all its days). */
+  function tennisGames(src, body) {
+    var out = [], events = (body && body.events) || [], today = dayOf(Date.now());
+    for (var i = 0; i < events.length; i++) {
+      var e = events[i], groups = e.groupings || [];
+      for (var g = 0; g < groups.length; g++) {
+        var singles = /singles/.test((groups[g].grouping && groups[g].grouping.slug) || ''), list = groups[g].competitions || [];
+        for (var k = 0; k < list.length; k++) {
+          var c = list[k], at = espnTime(c.date), round = (c.round && c.round.displayName) || '';
+          if (dayOf(at) !== today || !c.competitors || c.competitors.length !== 2) continue;
+          var cs = c.competitors.slice().sort(function (a, b) { return (a.order || 0) - (b.order || 0); });
+          var br = people(cs[0]).concat(people(cs[1])).some(brazilian);
+          if (!br && !(singles && (/^(Semifinal|Final)$/.test(round) || /\bFinals\b/.test(e.name || '')))) continue;
+          var state = gameState(c.status);
+          if (!state) continue;
+          var where = /\bFinals\b/.test(e.name || '') ? 'Finals' : ((c.venue && c.venue.fullName) || '').split(',')[0] || e.name || '';
+          out.push({id: c.id, at: at, state: state, clock: '', tag: src.tag + ' ' + where,
+            tennis: true, home: player(cs[0]), away: player(cs[1]), sets: sets(cs)});
+        }
+      }
+    }
+    return out;
+  }
+
+  /** "6-4 3-6 2-1": the sets so far, first player's games first. */
+  function sets(cs) {
+    var a = cs[0].linescores || [], b = cs[1].linescores || [], out = [];
+    for (var i = 0; i < a.length && i < b.length; i++) out.push(a[i].value + '-' + b[i].value);
+    return out.join(' ');
+  }
+
+  var games = {}, gamesAt = {}, fetchingGames = 0;   // by source path
+  (function () {
+    var g = stored('games');
+    if (g && g.games) { games = g.games; gamesAt = g.at || {}; }
+  })();
+
+  /** Each source again every minute while one of its games is on (or about to start), every 15 min on a day with one, else hourly. */
+  function gamesEvery(list, now) {
+    var today = dayOf(now), soon = false, some = false;
+    for (var i = 0; list && i < list.length; i++) {
+      var g = list[i];
+      if (g.state === 'in' || (g.state === 'pre' && g.at - now < 10 * 60000 && now - g.at < 3 * 3600000)) soon = true;
+      if (dayOf(g.at) === today) some = true;
+    }
+    return soon ? 60000 : some ? 15 * 60000 : 60 * 60000;
+  }
+
+  function refreshGames() {
+    if (!Prefs.sports() || fetchingGames) return;
+    var now = Date.now(), due = [];
+    for (var i = 0; i < SOURCES.length; i++) {
+      var at = gamesAt[SOURCES[i].path] || 0;
+      if (now - at >= gamesEvery(games[SOURCES[i].path], now) || now < at || dayOf(at) !== dayOf(now)) due.push(SOURCES[i]);
+    }
+    fetchingGames = due.length;
+    // The panel is drawn again once, when the last answer is in.
+    due.forEach(function (src) {
+      // Soccer: ESPN's day for the league, today's games or the next day with any; tennis: the tournaments of the day.
+      get(ESPN + src.path + '/scoreboard' + (src.tennis ? '?dates=' + dayOf(now) : ''), {}, function (err, body) {
+        if (!err) {
+          games[src.path] = src.tennis ? tennisGames(src, body) : soccerGames(src, body);
+          gamesAt[src.path] = Date.now();
+        }
+        if (--fetchingGames) return;
+        store('games', {games: games, at: gamesAt});
+        changed();
+      });
+    });
+  }
+
+  /** The games to show: today's, or else the next day's, in time order: {today, list}. */
+  function gameDay() {
+    var all = [], now = Date.now(), today = dayOf(now);
+    for (var i = 0; i < SOURCES.length; i++) all = all.concat(games[SOURCES[i].path] || []);
+    all.sort(function (a, b) { return a.at - b.at || (a.tag < b.tag ? -1 : a.tag > b.tag ? 1 : 0); });
+    var list = all.filter(function (g) { return dayOf(g.at) === today; });
+    if (list.length) return {today: true, list: list};
+    var next = all.filter(function (g) { return g.at > now; });
+    var day = next.length ? dayOf(next[0].at) : 0;
+    return {today: false, list: next.filter(function (g) { return dayOf(g.at) === day; })};
   }
 
   // MARK: - Picks (TMDB)
@@ -655,8 +824,11 @@ var Data = (function () {
     appFor: appFor,
     usable: usable,
     services: services,
-    refresh: function () { refreshWeather(); refreshPrices(); refreshRecs(); },
+    refresh: function () { refreshWeather(); refreshPrices(); refreshGames(); refreshRecs(); },
     settingsChanged: function () { pricesAt = 0; refreshPrices(); changed(); },
+    /** The games panel turned on or off. */
+    sportsChanged: function () { refreshGames(); changed(); },
+    gameDay: gameDay,
     findCity: findCity,
     /** Another city picked: its weather now (none shown until it comes). */
     cityChanged: function () { weather = null; weatherAt = 0; refreshWeather(); changed(); },

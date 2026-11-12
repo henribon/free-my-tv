@@ -139,7 +139,14 @@ stays, and Free My TV opens with a long press of a number key.
    sends the TV to LG's home screen. A persistent activity in `webos/service` starts it after a boot; the TV freezes it
    while off, and a gap in its timers is how it knows the TV came back on. LG closes the app behind others (YouTube) and
    opening it from closed took 3 to 5 s on a 1.25 GB TV, against under 2 s when loaded, so the helper loads it again
-   with `preload: 'full'` (about 50 MB), backing off if LG closes it again soon. Touch
+   with `preload: 'full'` (about 50 MB) 8 s after another app comes up, backing off if LG closes it again unseen.
+   Leaving an app shows LG's home screen: the helper follows the app on screen and opens Free My TV over it. The app
+   manager's `getForegroundAppInfo` is denied to Developer Mode apps (`applications.internal`), so it subscribes through
+   the remote control API on 127.0.0.1:3000 (`READ_RUNNING_APPS`; the TV asks once, the key goes to
+   `/media/developer/temp/freemytv-homekey.key`, the only place it may write). That connection drops while a big app
+   starts: it reconnects and keeps the last app. Between two apps the TV says none for 1 to 2 s; after an app it says
+   `com.webos.app.home`, now also for the Home button. LG's home screen stays when asked for (the drawer's *LG Home*,
+   or Exit from Free My TV) until another app opens, and the helper loads nothing behind it then. Touch
    `/media/developer/temp/freemytv-homekey.log` over SSH for a log.
 7. **Tell them:** while Free My TV is open, holding a number key pins it to that key (on a remote without number keys,
    it's in LG's app list on the home screen). Developer Mode lasts about 40 days; *EXTEND* in that app renews it (if
@@ -319,7 +326,8 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   wins over `CONFIG.tmdbKey`, and `Data.keyChanged()` fetches the picks again.
 - Continue Watching gets `READ_TV_LISTINGS` with `pm grant` through the TV's own ADB only when picked in Home Settings;
   *Original* revokes it with `pm revoke`. Watch Next pictures load only from the TV (`content://`, `android.resource://`),
-  never from the network. The app talks only to TMDB, Open-Meteo, Binance, Watchmode (with a `watchmode_key`), your Plex
+  never from the network. The app talks only to TMDB, Open-Meteo, Binance, ESPN (the LG and Samsung games panel, on TVs
+  in Brazil), Watchmode (with a `watchmode_key`), your Plex
   server (with a `plex_url`), your Immich server (with `immich_server` and its key), Trakt (with a `trakt_client_id`,
   once the person signs in on the TV) and GitHub's releases (Updates): new sources (such as Stremio) must not add
   network calls without the owner's OK.
@@ -589,5 +597,10 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   Opening fast on small TVs: `lift()` took over 2 s for the shelf's icons on a 1.25 GB LG, so its logos are kept in
   localStorage by app id (the remote control API gives an icon a new address on each list), and the screen is drawn from
   the last list of apps; the TV's list, the service and the network come 2.5 s later (`refreshSoon`).
+  The games panel (`Data.gameDay`, on by default when the time zone is in Brazil): ESPN's public scoreboards
+  (site.api.espn.com, no key, any origin), each source again every minute while one of its games is on. Soccer asks
+  the league's own day (today's games, or the next day with any); tennis asks for today and keeps semifinals, finals,
+  the Finals and Brazilians. `SOURCES` in `web/data.js` says what's followed (team ids are ESPN's); ESPN has neither
+  Série D nor the Copa Paulista. Next to it the weather card shows fewer hours and the prices card steps aside.
   `tools/webapp.py` is what both builds share. Preview: `python3 webos/build.py --preview` (or `tizen/build.py`), then
   open `out/webos/index.html` in a browser (a stand-in lists sample apps).

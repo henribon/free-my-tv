@@ -354,8 +354,8 @@
 
   // MARK: - Focus
 
-  var Z = {TOP: 'top', CARDS: 'cards', SHELF: 'shelf', DRAWER: 'drawer', APPS: 'apps', SETTINGS: 'settings', EDIT: 'edit', LANG: 'lang', CITY: 'city', KEY: 'key', ABOUT: 'about'};
-  var st = {zone: Z.SHELF, top: 0, tab: 0, card: 0, shelf: 0, drawer: 0, grid: 0, row: 0, edit: 0, lang: 0, city: 0, key: 0};
+  var Z = {TOP: 'top', CARDS: 'cards', SHELF: 'shelf', DRAWER: 'drawer', GAMES: 'games', APPS: 'apps', SETTINGS: 'settings', EDIT: 'edit', LANG: 'lang', CITY: 'city', KEY: 'key', ABOUT: 'about'};
+  var st = {zone: Z.SHELF, top: 0, tab: 0, card: 0, shelf: 0, drawer: 0, game: 0, grid: 0, row: 0, edit: 0, lang: 0, city: 0, key: 0};
   var cards = [];
 
   function sheetOpen() { return st.zone === Z.APPS || st.zone === Z.SETTINGS || st.zone === Z.EDIT || st.zone === Z.LANG || st.zone === Z.CITY || st.zone === Z.KEY || st.zone === Z.ABOUT; }
@@ -378,6 +378,9 @@
     revealShelf();
     list = document.querySelectorAll('#drawer .key');
     for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.DRAWER && st.drawer === i);
+    list = document.querySelectorAll('#games .game');
+    for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.GAMES && st.game === i);
+    scrollGames();
     list = document.querySelectorAll('#apps .cell');
     for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.APPS && st.grid === i);
     var rows = Math.max(1, Math.ceil(others.length / 5)), r = Math.floor(st.grid / 5), first = Math.max(0, Math.min(rows - 3, r - 1));
@@ -388,7 +391,7 @@
     if (langHint) langHint.textContent = (st.lang + 1) + ' / ' + languageChoices().length + '  ·  ' + tr('OK picks, Back cancels.');
     focusRows($('citypick'), st.city, st.zone === Z.CITY);
     focusRows($('keypick'), st.key, st.zone === Z.KEY);
-    setClass(body, 'drawer-open', st.zone === Z.DRAWER);
+    setClass(body, 'drawer-open', st.zone === Z.DRAWER || st.zone === Z.GAMES);
     followSoon();
   }
 
@@ -647,6 +650,7 @@
     drawerItems.push({label: tr('All Apps'), symbol: 'apps', run: openApps});
     drawerItems.push({label: tr('Home Settings'), symbol: 'settings', run: openSettings});
     if (TV.canOpenSettings) drawerItems.push({label: tr('TV Settings'), symbol: 'tv_settings', run: tvSettings});
+    if (TV.name === 'webos') drawerItems.push({label: tr('LG Home'), symbol: 'home', run: lgHome});
     var n = drawerItems.length, gap = 18, groupGap = 56, groups = drawerInputs > 0 && drawerInputs < n ? 2 : 1;
     var tw = Math.min(230, (1760 - Math.max(0, n - groups) * gap - (groups - 1) * groupGap) / Math.max(1, n));
     var xPos = 80;
@@ -668,27 +672,76 @@
     updateFocus();
   }
 
+  /** Two panels at most: the weather, then the day's games, then the prices (still at the top) when there's room. */
   function renderPanels() {
     var d = $('drawer');
     var old = d.querySelectorAll('.panel');
     for (var o = 0; o < old.length; o++) d.removeChild(old[o]);
-    var wx = Prefs.weather(), coins = Data.activeCoins(), qt = coins.length > 0;
-    var split = 80 + 1760 * 0.585;
-    if (wx) {
-      var w = el('div', 'panel glass', d);
-      w.id = 'weather';
-      w.style.left = '80px';
-      w.style.width = ((qt ? split - 16 : 1840) - 80) + 'px';
-      renderWeather(w);
+    var coins = Data.activeCoins(), day = Prefs.sports() ? Data.gameDay() : null, shown = [];
+    if (Prefs.weather()) shown.push('weather');
+    if (day && day.list.length) shown.push('games');
+    if (coins.length && shown.length < 2) shown.push('prices');
+    gameRows = shown.indexOf('games') >= 0 ? day.list : [];
+    if (!gameRows.length && st.zone === Z.GAMES) st.zone = Z.DRAWER;
+    st.game = Math.min(st.game, Math.max(0, gameRows.length - 1));
+    // The weather and the prices split as they always have; next to the games, half and half.
+    var split = 80 + 1760 * (shown[1] === 'prices' ? 0.585 : 0.5);
+    for (var i = 0; i < shown.length; i++) {
+      var p = el('div', 'panel glass', d), left = i ? split + 16 : 80;
+      p.id = shown[i];
+      p.style.left = left + 'px';
+      p.style.width = ((shown.length > 1 && !i ? split - 16 : 1840) - left) + 'px';
+      if (shown[i] === 'weather') renderWeather(p);
+      else if (shown[i] === 'games') renderGames(p, day);
+      else renderPrices(p, coins);
     }
-    if (qt) {
-      var q = el('div', 'panel glass', d);
-      q.id = 'prices';
-      var left = wx ? split + 16 : 80;
-      q.style.left = left + 'px';
-      q.style.width = (1840 - left) + 'px';
-      renderPrices(q, coins);
+  }
+
+  var gameRows = [], gameFirst = 0, GAME_ROWS = 4, GAME_STEP = 52;
+
+  /**
+   * The day's games, a row each: the time (or the minute, live), the home side, the score, the visitors and where it's
+   * played. Four show at once, from the first one that isn't over; with the focus on them, ↑ ↓ go through the rest.
+   */
+  function renderGames(card, day) {
+    el('div', 'head', card, day.today ? tr("Today's games") : tr('Next games'));
+    if (!day.today) el('div', 'side', card, Data.weekday(day.list[0].at));
+    var holder = el('div', 'rows', el('div', 'list', card));
+    for (var i = 0; i < day.list.length; i++) {
+      var g = day.list[i], row = el('div', 'game' + (g.state === 'in' ? ' live' : g.state === 'post' ? ' over' : '') + (g.tennis ? ' tennis' : ''), holder);
+      row.style.top = (i * GAME_STEP) + 'px';
+      el('span', 'at', row, g.state !== 'in' ? Data.time(g.at) : g.clock === 'half' ? tr('Half-time') : g.clock || '●');
+      team(row, 'home', g.home);
+      el('span', 'score', row, g.state === 'pre' ? '×' : g.tennis ? g.sets : g.home.score + ' × ' + g.away.score);
+      team(row, 'away', g.away);
+      el('span', 'tag', row, g.tag);
+      setClass(row, 'focus', st.zone === Z.GAMES && st.game === i);   // drawn again each minute while one is on
+      hover(row, Z.GAMES, i);
     }
+    if (st.zone !== Z.GAMES) {
+      st.game = 0;
+      while (st.game < day.list.length - 1 && day.list[st.game].state === 'post') st.game++;
+    }
+    scrollGames();
+  }
+
+  /** A side of a game: its name and crest (or flag), the crest toward the score. */
+  function team(row, cls, side) {
+    var s = el('span', 'team ' + cls, row), img = el('img', 'crest'), name = el('span', 'n', null, side.name);
+    img.onerror = function () { img.style.visibility = 'hidden'; };
+    if (side.crest) img.src = side.crest;
+    else img.style.visibility = 'hidden';
+    if (cls === 'home') { s.appendChild(name); s.appendChild(img); } else { s.appendChild(img); s.appendChild(name); }
+  }
+
+  /** Keeps the focused game in the panel's four rows; without the focus, they start at the first game not over. */
+  function scrollGames() {
+    var holder = document.querySelector('#games .rows');
+    if (!holder) return;
+    if (st.zone !== Z.GAMES || st.game < gameFirst) gameFirst = st.game;
+    else if (st.game >= gameFirst + GAME_ROWS) gameFirst = st.game - GAME_ROWS + 1;
+    gameFirst = Math.max(0, Math.min(gameRows.length - GAME_ROWS, gameFirst));
+    holder.style.webkitTransform = holder.style.transform = 'translateY(' + (-gameFirst * GAME_STEP) + 'px)';
   }
 
   function renderWeather(card) {
@@ -705,8 +758,9 @@
     el('div', 'range', card, trf('H:{max}', {max: Data.degrees(w.max)}) + '   ' + trf('L:{min}', {min: Data.degrees(w.min)}));
     el('div', 'split', card);
     // Home Settings → Forecast: the next 6 hours or the next 5 days (the hours until a forecast has days).
-    var days = Prefs.forecast() === 'days' && w.days && w.days.length > 0, list = days ? w.days : w.hours, n = days ? 5 : 6;
-    var hours = el('div', 'hours', card), width = parseFloat(card.style.width) - 30 - 422, hw = width / n;
+    // Fewer when the card is half the drawer (next to the games).
+    var days = Prefs.forecast() === 'days' && w.days && w.days.length > 0, list = days ? w.days : w.hours;
+    var hours = el('div', 'hours', card), width = parseFloat(card.style.width) - 30 - 422, n = Math.min(days ? 5 : 6, Math.floor(width / 80)), hw = width / n;
     for (var i = 0; list && i < list.length && i < n; i++) {
       var h = el('div', 'hour', hours), x = list[i];
       h.style.left = (hw * i) + 'px';
@@ -820,6 +874,8 @@
         step: function (d) { if (d >= 0) openCities(); }},
       {label: tr('Forecast'), value: Prefs.forecast() === 'days' ? tr('Next days') : tr('Next hours'),
         step: function (d) { cycle('forecast', ['hours', 'days'], Prefs.forecast(), d); renderPanels(); }},
+      {label: tr('Games widget'), toggle: Prefs.sports(),
+        step: function () { Prefs.set('sports', !Prefs.sports()); Data.sportsChanged(); }},
       {label: tr('Quotes widget'), toggle: Prefs.quotes(),
         step: function () { Prefs.set('quotes', !Prefs.quotes()); Data.settingsChanged(); }}
     ];
@@ -1332,6 +1388,13 @@
     });
   }
 
+  /** LG's own home screen, on purpose: the Home button's helper leaves it there until another app opens. */
+  function lgHome() {
+    TV.lgHome(function (ok) {
+      if (!ok) toast(trf("Couldn't open {app}.", {app: tr('LG Home')}));
+    });
+  }
+
   function liveTV() {
     for (var i = 0; i < inputs.length; i++) if (inputs[i].key === 'live') return inputs[i];
     return null;
@@ -1425,6 +1488,11 @@
       case Z.DRAWER:
         if (dx) st.drawer = Math.max(0, Math.min(drawerItems.length - 1, st.drawer + dx));
         else if (dy < 0) { closeDrawer(); return; }
+        else if (gameRows.length) { st.zone = Z.GAMES; st.game = gameFirst; }
+        break;
+      case Z.GAMES:
+        if (dy < 0 && st.game === 0) st.zone = Z.DRAWER;
+        else if (dy) st.game = Math.max(0, Math.min(gameRows.length - 1, st.game + dy));
         break;
       case Z.APPS:
         var g = st.grid + dx + dy * 5;
@@ -1468,6 +1536,7 @@
     if (st.zone === Z.KEY) { if (keyAsking) askRemoveKey(false); else closeKey(); return; }
     if (st.zone === Z.ABOUT) { closeAbout(); return; }
     if (sheetOpen()) { closeSheets(); return; }
+    if (st.zone === Z.GAMES) { st.zone = Z.DRAWER; updateFocus(); return; }
     if (st.zone === Z.DRAWER) { closeDrawer(); return; }
     if (st.zone !== Z.SHELF) { st.zone = Z.SHELF; updateFocus(); return; }
     TV.back();
@@ -1477,15 +1546,17 @@
   function hover(node, zone, index) {
     node.onmouseover = function () {
       if (saverOn || (sheetOpen() !== (zone === Z.APPS || zone === Z.SETTINGS || zone === Z.EDIT || zone === Z.LANG || zone === Z.CITY || zone === Z.KEY || zone === Z.ABOUT))) return;
-      if (zone === Z.DRAWER && st.zone !== Z.DRAWER) return;
-      if (zone !== Z.DRAWER && st.zone === Z.DRAWER && zone !== Z.SHELF) return;
+      var inDrawer = st.zone === Z.DRAWER || st.zone === Z.GAMES;
+      if ((zone === Z.DRAWER || zone === Z.GAMES) && !inDrawer) return;
+      if (zone !== Z.DRAWER && zone !== Z.GAMES && inDrawer && zone !== Z.SHELF) return;
       if (zone === Z.TOP && index < 3 && !Data.hasKey()) return;   // the tabs are hidden without the picks
-      if (zone === Z.SHELF && st.zone === Z.DRAWER) closeDrawer();
+      if (zone === Z.SHELF && inDrawer) { st.zone = Z.DRAWER; closeDrawer(); }
       st.zone = zone;
       if (zone === Z.TOP) { st.top = index; if (index < 3) selectTab(index); }
       else if (zone === Z.CARDS) st.card = index;
       else if (zone === Z.SHELF) st.shelf = index;
       else if (zone === Z.DRAWER) st.drawer = index;
+      else if (zone === Z.GAMES) st.game = index;
       else if (zone === Z.APPS) st.grid = index;
       else if (zone === Z.SETTINGS) st.row = index;
       else if (zone === Z.EDIT) st.edit = index;

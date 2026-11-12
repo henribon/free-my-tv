@@ -473,6 +473,28 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .night #prices .up { color: #30D158; background: rgba(48, 209, 88, 0.2); }
 .night #prices .down { color: #FF453A; background: rgba(255, 69, 58, 0.2); }
 
+/* The day's games: four rows at a time, sliding a row at a time under the focus. */
+#games .list { position: absolute; left: 0; right: 0; top: 76px; height: 208px; overflow: hidden; }
+#games .rows { position: absolute; left: 0; right: 0; top: 0; -webkit-transition: -webkit-transform 0.2s; transition: transform 0.2s; }
+#games .game { position: absolute; left: 18px; right: 18px; height: 50px; border-radius: 14px; font-size: 25px; font-weight: 500; white-space: nowrap; -webkit-font-feature-settings: 'tnum'; font-feature-settings: 'tnum'; }
+#games .game.focus { background: rgba(0, 0, 0, 0.08); }
+#games .at { position: absolute; left: 16px; top: 11px; width: 88px; font-size: 23px; color: #6E6E73; }
+#games .live .at { color: #D70015; font-weight: 600; }
+#games .team { position: absolute; top: 5px; width: 220px; height: 40px; overflow: hidden; }
+#games .home { left: 100px; text-align: right; }
+#games .away { left: 440px; }
+#games .crest { display: inline-block; width: 34px; height: 34px; vertical-align: middle; }
+#games .n { display: inline-block; max-width: 174px; margin: 0 10px; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
+#games .score { position: absolute; left: 320px; top: 10px; width: 120px; text-align: center; font-weight: 600; }
+#games .tennis .score { top: 13px; font-size: 21px; }
+#games .tag { position: absolute; right: 14px; top: 14px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; font-size: 19px; color: #8E8E93; }
+#games .over .n, #games .over .score { color: #6E6E73; }
+.drawer-open #drawer .game { pointer-events: auto; }
+.night #games .game.focus { background: rgba(255, 255, 255, 0.14); }
+.night #games .at, .night #games .over .n, .night #games .over .score { color: rgba(255, 255, 255, 0.62); }
+.night #games .live .at { color: #FF453A; }
+.night #games .tag { color: rgba(255, 255, 255, 0.55); }
+
 /* MARK: - Sheets over the home screen: All Apps, Settings, Shelf, Language, About */
 
 .sheet {
