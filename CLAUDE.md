@@ -134,6 +134,8 @@ stays, and Free My TV opens with a long press of a number key.
 6. **Tell them:** while Free My TV is open, holding a number key pins it to that key (on a remote without number keys,
    it's in LG's app list on the home screen). Developer Mode lasts about 40 days; *EXTEND* in that app renews it (if
    it runs out, the TV removes developer apps, and installing again brings it back). `--uninstall` removes Free My TV.
+   Leaving an app lands on LG's home: *Home Settings* → *Return to Free My TV* (off by default) opens Free My TV again
+   then (the TV asks once to allow it), and Home pressed in Free My TV still opens LG's home.
 7. **Empty shelf on webOS 3** (user agent Chrome 38): the app can't list the TV's apps there (`listLaunchPoints`
    denied, no `getAppLoadStatus`, and the remote control API answers `invalid origin` to file:// pages). Run
    `python3 webos/apps.py <IP>`: the TV asks them once to allow it, then build and install again. It writes
@@ -578,3 +580,16 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   (`tools/make_zones.py`, from the tz database) turns the TV's time zone into the city, the currency and the region.
   `tools/webapp.py` is what both builds share. Preview: `python3 webos/build.py --preview` (or `tizen/build.py`), then
   open `out/webos/index.html` in a browser (a stand-in lists sample apps).
+- *Sports today* (LG and Samsung, Home Settings, off by default; `sports=` in config.properties turns it on): the next
+  game on a line in the top row (`#sportsline`, top-row index 3 while it shows, the round buttons after it:
+  `firstButton()`), OK on it or the drawer's shortcut lists today's and tomorrow's (`#sports`). The data is ESPN's
+  public scoreboards (`site.api.espn.com`, no key, `Access-Control-Allow-Origin: *`; `Data.SPORTS`): a league one day
+  at a time (`?dates=YYYYMMDD`), a tennis tour its week's tournaments (singles only), every 15 min (5 while one is
+  live). No free source has skateboarding. Akamai answers headless Chromium (the preview under Playwright) with 403
+  "Access Denied" while curl and TVs get the JSON: test the preview with the scoreboards served by `page.route`.
+- *Return to Free My TV* (LG, Home Settings, off by default): `webos/service`'s `watch` keeps a connection to the
+  remote control API with its own key (`fmtv.watchKey`; permissions `READ_RUNNING_APPS`, `READ_POWER_STATE`,
+  `LAUNCH`), subscribes to `getForegroundAppInfo`, and when an app other than Free My TV gives way to LG's home
+  (`com.webos.app.home`) for 1.2 s with the TV `Active`, launches Free My TV (Luna, else `ssap://system.launcher/launch`).
+  A `keepAlive` activity holds the service up after the page closes; after a restart it starts when Free My TV opens.
+  Not yet confirmed on a TV: if it does nothing, ask for `getForegroundAppInfo`'s app ids when leaving an app there.

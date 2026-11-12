@@ -4,7 +4,8 @@
  *    HDMI Inputs, Settings) and the crypto quotes at the end of the tab row;
  *  - three picks for this hour in the selected tab; the background is the focused one's photo, blurred, almost white;
  *  - the glass shelf with the apps; ↓ opens the drawer (inputs, shortcuts, weather, prices); ↑ or Back closes it;
- *  - a night look from sunset to sunrise; a screensaver after a few idle minutes.
+ *  - a night look from sunset to sunrise; a screensaver after a few idle minutes;
+ *  - Sports today (Home Settings): the next game on a line in the top row, OK lists the day's.
  * The remote's arrows, OK and Back move the focus; a pointer (LG's Magic Remote) focuses what it points at.
  */
 (function () {
@@ -320,11 +321,16 @@
 
   // MARK: - Focus
 
-  var Z = {TOP: 'top', CARDS: 'cards', SHELF: 'shelf', DRAWER: 'drawer', APPS: 'apps', SETTINGS: 'settings', EDIT: 'edit', LANG: 'lang', CITY: 'city', KEY: 'key', ABOUT: 'about'};
-  var st = {zone: Z.SHELF, top: 0, tab: 0, card: 0, shelf: 0, drawer: 0, grid: 0, row: 0, edit: 0, lang: 0, city: 0, key: 0};
+  var Z = {TOP: 'top', CARDS: 'cards', SHELF: 'shelf', DRAWER: 'drawer', APPS: 'apps', SETTINGS: 'settings', EDIT: 'edit', LANG: 'lang', CITY: 'city', KEY: 'key', ABOUT: 'about', SPORTS: 'sports'};
+  var st = {zone: Z.SHELF, top: 0, tab: 0, card: 0, shelf: 0, drawer: 0, grid: 0, row: 0, edit: 0, lang: 0, city: 0, key: 0, sport: 0};
   var cards = [];
 
-  function sheetOpen() { return st.zone === Z.APPS || st.zone === Z.SETTINGS || st.zone === Z.EDIT || st.zone === Z.LANG || st.zone === Z.CITY || st.zone === Z.KEY || st.zone === Z.ABOUT; }
+  function sheetZone(zone) { return zone === Z.APPS || zone === Z.SETTINGS || zone === Z.EDIT || zone === Z.LANG || zone === Z.CITY || zone === Z.KEY || zone === Z.ABOUT || zone === Z.SPORTS; }
+  function sheetOpen() { return sheetZone(st.zone); }
+
+  // The top row: the three tabs (0 to 2), the sports line when it shows (3), then the round buttons.
+  var lineOn = false;
+  function firstButton() { return lineOn ? 4 : 3; }
 
   function updateFocus() {
     var i, list;
@@ -334,8 +340,9 @@
       setClass(list[i], 'focus', st.zone === Z.TOP && st.top === i);
     }
     list = $('buttons').children;
-    for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.TOP && st.top === 3 + i);
-    setClass($('quotes'), 'hide', st.zone === Z.TOP && st.top >= 3);
+    for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.TOP && st.top === firstButton() + i);
+    setClass($('sportsline'), 'focus', st.zone === Z.TOP && lineOn && st.top === 3);
+    setClass($('quotes'), 'hide', st.zone === Z.TOP && st.top >= firstButton());
     layoutCards();
     list = $('cards').children;
     for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.CARDS && st.card === i);
@@ -354,6 +361,7 @@
     if (langHint) langHint.textContent = (st.lang + 1) + ' / ' + languageChoices().length + '  ·  ' + tr('OK picks, Back cancels.');
     focusRows($('citypick'), st.city, st.zone === Z.CITY);
     focusRows($('keypick'), st.key, st.zone === Z.KEY);
+    focusRows($('sports'), st.sport, st.zone === Z.SPORTS);
     setClass(body, 'drawer-open', st.zone === Z.DRAWER);
     followSoon();
   }
@@ -403,8 +411,9 @@
       r.style.left = (1596 + 88 * b) + 'px';
       sym(defs[b][0], r);
       el('div', 'tip', r, defs[b][1]);
-      hover(r, Z.TOP, 3 + b);
+      hover(r, Z.TOP, firstButton() + b);
     }
+    hover($('sportsline'), Z.TOP, 3);
   }
 
   function renderQuotes() {
@@ -596,6 +605,7 @@
     }
     drawerInputs = drawerItems.length;
     drawerItems.push({label: tr('All Apps'), symbol: 'apps', run: openApps});
+    if (Prefs.sportsOn()) drawerItems.push({label: tr('Sports today'), symbol: 'soccer', run: openSports});
     drawerItems.push({label: tr('Home Settings'), symbol: 'settings', run: openSettings});
     if (TV.canOpenSettings) drawerItems.push({label: tr('TV Settings'), symbol: 'tv_settings', run: tvSettings});
     var n = drawerItems.length, gap = 18, groupGap = 56, groups = drawerInputs > 0 && drawerInputs < n ? 2 : 1;
@@ -734,6 +744,7 @@
     setClass($('shelfedit'), 'open', false);
     setClass($('langpick'), 'open', false);
     setClass($('about'), 'open', false);
+    setClass($('sports'), 'open', false);
     closeField('citypick');
     closeField('keypick');
     setClass($('citypick'), 'open', false);
@@ -757,7 +768,7 @@
         step: function (d) { cycle('theme', ['auto', 'light', 'dark'], theme, d); checkNight(); }},
       {label: tr('Dim'), value: dimName(),
         step: function (d) { cycle('dim', ['off', 'low', 'medium', 'high', 'auto'], Prefs.dim(), d); applyDim(); }},
-      {label: tr('Screensaver'), value: saverMode() === 'clock' ? tr('Clock') : tr('Photos'),
+      {label: tr('Screensaver'), value: saverMode() === 'clock' ? tr('Clock') : tr('Photos'), saver: true,
         step: function (d) { cycle('saver', ['photos', 'clock'], saverMode(), d); }},
       {label: tr('Picks per tab'), value: String(Prefs.cards()),
         step: function (d) { Prefs.set('cards', 3 + (Prefs.cards() - 3 + (d || 1) + 4) % 4); renderCards(); }},
@@ -774,6 +785,12 @@
       {label: tr('Quotes widget'), toggle: Prefs.quotes(),
         step: function () { Prefs.set('quotes', !Prefs.quotes()); Data.settingsChanged(); }}
     ];
+    // LG: leaving an app comes back here instead of LG's home (webos/service watches the app in front).
+    if (TV.name === 'webos') {
+      for (var at = 0; at < rows.length && !rows[at].saver; at++) {}
+      rows.splice(at + 1, 0, {label: tr('Return to Free My TV'), toggle: Prefs.stayOnTop(),
+        step: function () { stayOnTop(!Prefs.stayOnTop()); }});
+    }
     var names = ['Bitcoin', 'Ethereum', 'Solana', tr('Dollar')];
     var count = Data.currency === 'BRL' ? 4 : 3;
     for (var i = 0; i < count; i++) {
@@ -781,6 +798,16 @@
         rows.push({label: names[i], toggle: Prefs.quotes() && Prefs.coin(i), dim: !Prefs.quotes(),
           step: function () { if (Prefs.quotes()) { Prefs.setCoin(i, !Prefs.coin(i)); Data.settingsChanged(); } }});
       })(i);
+    }
+    rows.push({label: tr('Sports today'), toggle: Prefs.sportsOn(),
+      step: function () { Prefs.set('sportsOn', !Prefs.sportsOn()); sportsChanged(); }});
+    var keys = Data.SPORTS.map(function (x) { return x.key; });
+    for (var sp = 0; sp < Data.SPORTS.length; sp++) {
+      (function (sport) {
+        rows.push({label: sport.league ? sport.name : tr('Tennis') + ' · ' + sport.name, toggle: Prefs.sportsOn() && Prefs.sportOn(sport.key),
+          dim: !Prefs.sportsOn(),
+          step: function () { if (Prefs.sportsOn()) { Prefs.setSport(sport.key, !Prefs.sportOn(sport.key), keys); sportsChanged(); } }});
+      })(Data.SPORTS[sp]);
     }
     rows.push({label: tr('TMDB key'), value: Prefs.tmdbKey().length >= 4 ? '•••• ' + Prefs.tmdbKey().slice(-4) : tr('Not set'), opens: true, tmdb: true,
       step: function (d) { if (d >= 0) openKey(); }});
@@ -806,6 +833,27 @@
     rows.push({label: tr('About this TV'), value: '›', about: true, step: function (d) { if (d >= 0) openAbout(); }});
     if (TV.canOpenSettings) rows.push({label: tr('TV Settings'), value: '›', step: function (d) { if (d >= 0) tvSettings(); }});
     return rows;
+  }
+
+  /** Sports today, or one of its competitions, turned on or off: the line, the drawer's shortcut and the games again. */
+  function sportsChanged() {
+    Data.sportsChanged();
+    renderDrawer();
+    renderSportsLine();
+  }
+
+  /** LG: Return to Free My TV. The service starts (or stops) watching; the first time the TV asks to allow it. */
+  function stayOnTop(on) {
+    Prefs.set('stayOnTop', on);
+    TV.stayOnTop(on, function (ok) {
+      if (!on) return;
+      if (ok) toast(tr("Leaving an app brings you back here. Press Home here for LG's home."));
+      else {
+        Prefs.set('stayOnTop', false);
+        toast(tr("The TV didn't allow it."));
+        if (st.zone === Z.SETTINGS) renderSettings();
+      }
+    });
   }
 
   function cycle(name, values, current, d) {
@@ -1184,6 +1232,137 @@
     updateFocus();
   }
 
+  // MARK: - Sports today: the next game on a line in the top row; OK on it lists today's and tomorrow's
+
+  /** "Flamengo × Palmeiras", with the score once it started: "Flamengo 1 × 0 Palmeiras". */
+  function matchTitle(e) {
+    return e.sa !== undefined && e.state !== 'pre' ? e.a + ' ' + e.sa + ' × ' + e.sb + ' ' + e.b : e.a + ' × ' + e.b;
+  }
+
+  /**
+   * What the line shows: a live game first, then today's next, then tomorrow's first; null when there's none. The
+   * leagues' games come before tennis, whose matches run all day.
+   */
+  function sportsNext() {
+    var d = Data.sports(), now = Date.now(), left = 0, i, e, league;
+    for (i = 0; i < d.today.length; i++) if (d.today[i].state !== 'post') left++;
+    for (league = 1; league >= 0; league--) {
+      for (i = 0; i < d.today.length; i++) {
+        e = d.today[i];
+        if (e.state === 'in' && !!Data.sportOf(e.sport).league === !!league) return {e: e, live: true, more: left - 1};
+      }
+    }
+    for (league = 1; league >= 0; league--) {
+      for (var timed = 1; timed >= 0; timed--) {
+        for (i = 0; i < d.today.length; i++) {
+          e = d.today[i];
+          if (e.state === 'pre' && !!Data.sportOf(e.sport).league === !!league && e.timed === !!timed
+              && (!timed || e.at > now - 10 * 60000)) return {e: e, day: tr('Today'), more: left - 1};
+        }
+      }
+    }
+    for (league = 1; league >= 0; league--) {
+      for (i = 0; i < d.tomorrow.length; i++) {
+        e = d.tomorrow[i];
+        if (e.state === 'pre' && !!Data.sportOf(e.sport).league === !!league) return {e: e, day: tr('Tomorrow'), more: d.tomorrow.length - 1};
+      }
+    }
+    return null;
+  }
+
+  var lineText = '';
+
+  function renderSportsLine() {
+    var line = $('sportsline'), next = Prefs.sportsOn() ? sportsNext() : null, on = !!next;
+    var text = next ? [next.e.id, next.e.state, next.e.sa, next.e.sb, next.e.clock, next.more, next.day, I18N.lang].join('|') : '';
+    if (on !== lineOn) {
+      // The round buttons move one place along the top row: the focus stays on what it was on.
+      if (st.zone === Z.TOP && st.top >= 3) st.top = on ? st.top + 1 : Math.max(3, st.top - 1);
+      lineOn = on;
+      setClass(line, 'on', on);
+      renderTop();
+      updateFocus();
+    }
+    if (text === lineText) return;
+    lineText = text;
+    line.innerHTML = '';
+    if (!next) return;
+    var e = next.e;
+    sym(Data.sportOf(e.sport).symbol, line);
+    if (next.live) el('span', 'live', line, tr('Live'));
+    else el('span', 'when', line, next.day + (e.timed ? ' ' + Data.time(e.at) : ''));
+    el('span', 'what', line, matchTitle(e) + (next.live && e.clock ? '  ' + e.clock : ''));
+    if (next.more > 0) el('span', 'extra', line, '+' + next.more);
+  }
+
+  var sportRows = [];
+
+  /** The next row from `i` going `dy` that isn't a day's heading (or `i` itself, kept in the list). */
+  function sportRowFrom(i, dy) {
+    var dir = dy < 0 ? -1 : 1;
+    while (i >= 0 && i < sportRows.length && sportRows[i].head) i += dir;
+    if (i < 0 || i >= sportRows.length) return st.sport;
+    return i;
+  }
+
+  function renderSports() {
+    var box = $('sports').firstChild, d = Data.sports(), i;
+    box.innerHTML = '';
+    var title = el('div', 'title', box);
+    sym('soccer', title);
+    title.appendChild(document.createTextNode(tr('Sports today')));
+    sportRows = [];
+    var days = [[tr('Today'), d.today], [tr('Tomorrow'), d.tomorrow]];
+    for (var k = 0; k < days.length; k++) {
+      if (!days[k][1].length) continue;
+      sportRows.push({head: days[k][0]});
+      for (i = 0; i < days[k][1].length; i++) sportRows.push({e: days[k][1][i]});
+    }
+    var list = el('div', 'list', box), holder = el('div', 'rows', list);
+    list.style.height = Math.max(1, Math.min(sportRows.length, 7)) * 78 + 'px';
+    if (!sportRows.length) el('div', 'row dim', holder, tr('Nothing today or tomorrow.'));
+    for (i = 0; i < sportRows.length; i++) {
+      var r = sportRows[i];
+      if (r.head) { el('div', 'row head', holder, r.head); continue; }
+      var e = r.e, sport = Data.sportOf(e.sport), row = el('div', 'row game' + (e.state === 'post' ? ' done' : ''), holder);
+      el('span', 'at', row, e.timed ? Data.time(e.at) : '—');
+      sym(sport.symbol, row);
+      el('span', 'what', row, matchTitle(e));
+      // Live: the clock or the sets; over: the sets (the score is in the title); else the competition.
+      var side = e.state === 'in' ? tr('Live') + (e.clock || e.sets ? ' · ' + (e.clock || e.sets) : '')
+          : e.state === 'post' && e.sets ? e.sets : sport.group + (e.where ? ' · ' + e.where : '');
+      el('span', 'value' + (e.state === 'in' ? ' live' : ''), row, side);
+      hover(row, Z.SPORTS, i);
+    }
+    var stale = Data.staleness(Data.sportsAt, 15 * 60000);
+    el('div', 'hint', box, 'ESPN' + (stale ? '  ·  ' + stale : ''));
+    st.sport = sportRowFrom(Math.min(st.sport, Math.max(0, sportRows.length - 1)), 1);
+    updateFocus();
+  }
+
+  var sportsFrom = null;   // where Back takes the focus: the line, or the drawer's shortcut
+
+  function openSports() {
+    sportsFrom = {zone: st.zone, drawer: st.drawer};
+    st.zone = Z.SPORTS;
+    st.sport = 0;
+    renderSports();
+    // At the first game that isn't over: the morning's results stay above it.
+    for (var i = 0; i < sportRows.length; i++) if (sportRows[i].e && sportRows[i].e.state !== 'post') { st.sport = i; break; }
+    setClass($('sports'), 'open', true);
+    updateFocus();
+    Data.refresh();
+  }
+
+  function closeSports() {
+    setClass($('sports'), 'open', false);
+    var from = sportsFrom || {zone: Z.SHELF};
+    if (from.zone === Z.DRAWER && drawerItems.length) { st.zone = Z.DRAWER; st.drawer = Math.min(from.drawer, drawerItems.length - 1); }
+    else if (from.zone === Z.TOP && lineOn) { st.zone = Z.TOP; st.top = 3; }
+    else st.zone = Z.SHELF;
+    updateFocus();
+  }
+
   // MARK: - Shelf editor: which apps, in what order
 
   function editList() {
@@ -1285,8 +1464,10 @@
     switch (st.zone) {
       case Z.TOP:
         if (st.top < 3) return;
-        if (st.top === 3) { var live = liveTV(); if (live) launcher(live.id, tr('Live TV'))(); }
-        else if (st.top === 4) { st.zone = Z.SHELF; openDrawer(); st.drawer = 1 < drawerInputs ? 1 : 0; updateFocus(); }
+        if (lineOn && st.top === 3) { openSports(); return; }
+        var button = st.top - firstButton();
+        if (button === 0) { var live = liveTV(); if (live) launcher(live.id, tr('Live TV'))(); }
+        else if (button === 1) { st.zone = Z.SHELF; openDrawer(); st.drawer = 1 < drawerInputs ? 1 : 0; updateFocus(); }
         else openSettings();
         return;
       case Z.CARDS:
@@ -1320,6 +1501,8 @@
       case Z.ABOUT:
         closeAbout();
         return;
+      case Z.SPORTS:
+        return;   // the list is to read: Back closes it
     }
   }
 
@@ -1354,7 +1537,7 @@
         break;
       case Z.TOP:
         if (dx) {
-          st.top = Math.max(Data.hasKey() ? 0 : 3, Math.min(5, st.top + dx));   // without the picks the tabs can't hold focus
+          st.top = Math.max(Data.hasKey() ? 0 : 3, Math.min(firstButton() + 2, st.top + dx));   // without the picks the tabs can't hold focus
           if (st.top < 3) selectTab(st.top);   // as on Apple TV: focusing a tab selects it
         } else if (dy > 0) {
           if (cards.length) { st.zone = Z.CARDS; st.card = Math.min(cards.length - 1, st.top < 3 ? 0 : cards.length - 1); }
@@ -1389,6 +1572,9 @@
       case Z.KEY:
         if (dy) st.key = Math.max(0, Math.min(keyRows() - 1, st.key + dy));
         break;
+      case Z.SPORTS:
+        if (dy) st.sport = sportRowFrom(st.sport + dy, dy);
+        break;
     }
     updateFocus();
   }
@@ -1405,6 +1591,7 @@
     if (st.zone === Z.CITY) { closeCities(false); return; }
     if (st.zone === Z.KEY) { if (keyAsking) askRemoveKey(false); else closeKey(); return; }
     if (st.zone === Z.ABOUT) { closeAbout(); return; }
+    if (st.zone === Z.SPORTS) { closeSports(); return; }
     if (sheetOpen()) { closeSheets(); return; }
     if (st.zone === Z.DRAWER) { closeDrawer(); return; }
     if (st.zone !== Z.SHELF && shelf.length) { st.zone = Z.SHELF; updateFocus(); return; }
@@ -1414,10 +1601,11 @@
   /** The pointer focuses what it's over (the Magic Remote, or a mouse when previewing). */
   function hover(node, zone, index) {
     node.onmouseover = function () {
-      if (saverOn || (sheetOpen() !== (zone === Z.APPS || zone === Z.SETTINGS || zone === Z.EDIT || zone === Z.LANG || zone === Z.CITY || zone === Z.KEY || zone === Z.ABOUT))) return;
+      if (saverOn || sheetOpen() !== sheetZone(zone)) return;
       if (zone === Z.DRAWER && st.zone !== Z.DRAWER) return;
       if (zone !== Z.DRAWER && st.zone === Z.DRAWER && zone !== Z.SHELF) return;
       if (zone === Z.TOP && index < 3 && !Data.hasKey()) return;   // the tabs are hidden without the picks
+      if (zone === Z.TOP && index === 3 && node.id === 'sportsline' && !lineOn) return;
       if (zone === Z.SHELF && st.zone === Z.DRAWER) closeDrawer();
       st.zone = zone;
       if (zone === Z.TOP) { st.top = index; if (index < 3) selectTab(index); }
@@ -1430,6 +1618,7 @@
       else if (zone === Z.LANG) st.lang = index;
       else if (zone === Z.CITY) st.city = index;
       else if (zone === Z.KEY) st.key = index;
+      else if (zone === Z.SPORTS) { if (sportRows[index] && sportRows[index].head) return; st.sport = index; }
       updateFocus();
     };
     node.onclick = function () { node.onmouseover(); activate(); };
@@ -1624,6 +1813,7 @@
 
   function renderAll() {
     renderTop();
+    renderSportsLine();
     renderQuotes();
     cards = [];
     renderCards();
@@ -1672,6 +1862,8 @@
     renderQuotes();
     renderCards();
     renderPanels();
+    renderSportsLine();
+    if (st.zone === Z.SPORTS) renderSports();
     checkNight();
   });
 
@@ -1705,8 +1897,10 @@
   TV.holdScreenSaver(function () { return !sheetOpen() && (saverMode() === 'clock' || saverPhotos().length > 0); });
   fit();
   renderTop();
+  renderSportsLine();   // from the last list, before the TV lists its apps
   applyDim();
   tickClock();
+  if (Prefs.stayOnTop()) TV.stayOnTop(true, function () {});   // the service again, after the TV restarted
   loadApps(function () {
     renderAll();
     restInDrawer();
@@ -1715,6 +1909,7 @@
   setInterval(function () {
     checkNight();
     Data.refresh();
+    renderSportsLine();   // the next game moves on as they start
     applyDim();   // automatic: medium from 22:00, off again at 07:00
     if (!saverOn && !ambientOn && !sheetOpen() && Date.now() - idleAt > SAVER_AFTER) {
       if (saverMode() === 'clock') showAmbient(); else showSaver();

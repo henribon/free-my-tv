@@ -2,7 +2,8 @@
  * What the home screen shows, kept in localStorage so it opens with numbers:
  *  - the picks: what's trending this week and recent releases, only from the streaming apps on this TV (TMDB, with
  *    the person's own free key from config.properties), 3 per hour (up to 6 in Home Settings);
- *  - weather, sunrise and sunset (Open-Meteo, every 30 min) and optional crypto prices (Binance, every 5 min).
+ *  - weather, sunrise and sunset (Open-Meteo, every 30 min) and optional crypto prices (Binance, every 5 min);
+ *  - optional sports today (ESPN's public scoreboards, every 15 min): Brasileirão Série A and B, ATP and WTA singles.
  * Settings changed on the TV (Prefs) win over config.properties, as on Android. Built without a city (--generic), the
  * TV's time zone gives the city, and its country the currency and the region (zones.js).
  */
@@ -103,6 +104,20 @@ var Prefs = (function () {
       this.set('servicesOff', list);
     },
     openPicks: function () { return pick('openPicks', CONFIG.openPicksIn === 'nuvio' ? 'nuvio' : 'apps'); },
+    /** Sports today (Home Settings): off until turned on there, or until config.properties names competitions. */
+    sportsOn: function () { return pick('sportsOn', (CONFIG.sports || []).length > 0) === true; },
+    /** A competition (Data.SPORTS key) on the sports line; all of them until some are turned off. */
+    sportOn: function (key) {
+      var on = pick('sports', (CONFIG.sports || []).length ? CONFIG.sports : null);
+      return on ? on.indexOf(key) >= 0 : true;
+    },
+    setSport: function (key, on, all) {
+      var list = all.filter(function (k) { return k !== key && this.sportOn(k); }, this);
+      if (on) list.push(key);
+      this.set('sports', list);
+    },
+    /** LG: an app that closes onto LG's home brings Free My TV back (webos/service watches; off by default). */
+    stayOnTop: function () { return pick('stayOnTop', false) === true; },
     set: function (name, value) { v[name] = value; save(); this.version++; },
     setCoin: function (i, on) {
       var c = (pick('coins', null) || [true, true, true, true]).slice();
@@ -316,6 +331,170 @@ var Data = (function () {
         changed();
       });
     })(0);
+  }
+
+  // MARK: - Sports today (ESPN's public scoreboards, no key: only the competitions turned on in Home Settings)
+
+  // A league's scoreboard is asked for one day at a time (dates=YYYYMMDD); a tennis tour's lists this week's
+  // tournaments with all their matches, of which the singles of today and tomorrow are kept.
+  var SPORTS = [
+    {key: 'bra.1', path: 'soccer/bra.1', name: 'Brasileirão Série A', group: 'Série A', symbol: 'soccer', league: true},
+    {key: 'bra.2', path: 'soccer/bra.2', name: 'Brasileirão Série B', group: 'Série B', symbol: 'soccer', league: true},
+    {key: 'atp', path: 'tennis/atp', name: 'ATP', group: 'ATP', symbol: 'tennis'},
+    {key: 'wta', path: 'tennis/wta', name: 'WTA', group: 'WTA', symbol: 'tennis'}
+  ];
+  var ESPN = 'https://site.api.espn.com/apis/site/v2/sports/';
+
+  function pad2(n) { return n < 10 ? '0' + n : '' + n; }
+  /** "20261114" for the TV's local day of `at`. */
+  function dayKey(at) { var d = new Date(at); return d.getFullYear() + pad2(d.getMonth() + 1) + pad2(d.getDate()); }
+  /** Local midnight, `days` days after the day of `at` (new Date handles the month's end and summer time). */
+  function midnight(at, days) { var d = new Date(at); return new Date(d.getFullYear(), d.getMonth(), d.getDate() + (days || 0)).getTime(); }
+  /** ESPN's "2026-11-14T21:30Z" → epoch ms, by hand: old WebKit's Date.parse doesn't take every ISO form. */
+  function isoTime(s) {
+    var m = /^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d)(?::(\d\d))?/.exec(s || '');
+    return m ? Date.UTC(+m[1], m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0)) : 0;
+  }
+  /** Postponed, canceled or abandoned: not on the list. */
+  function called(type) { return /POSTPONED|CANCELED|CANCELLED|ABANDONED|FORFEIT/.test(type.name || ''); }
+
+  function sportsActive() {
+    var out = [];
+    if (!Prefs.sportsOn()) return out;
+    for (var i = 0; i < SPORTS.length; i++) if (Prefs.sportOn(SPORTS[i].key)) out.push(SPORTS[i]);
+    return out;
+  }
+
+  /** A league's games from `from` to `to`: [{id, at, sport, a, b, sa, sb, state, clock, timed}] (a plays at home). */
+  function parseGames(sport, body, from, to) {
+    var out = [], list = (body && body.events) || [];
+    for (var i = 0; i < list.length; i++) {
+      var e = list[i], c = e.competitions && e.competitions[0];
+      if (!c || !c.competitors) continue;
+      var home = null, away = null;
+      for (var j = 0; j < c.competitors.length; j++) {
+        if (c.competitors[j].homeAway === 'home') home = c.competitors[j]; else away = c.competitors[j];
+      }
+      var status = c.status || e.status || {}, type = status.type || {}, at = isoTime(c.startDate || e.date);
+      if (!home || !away || !home.team || !away.team || called(type) || at < from || at >= to) continue;
+      out.push({id: sport.key + e.id, at: at, sport: sport.key, a: home.team.shortDisplayName || home.team.displayName || '',
+        b: away.team.shortDisplayName || away.team.displayName || '', sa: home.score || '0', sb: away.score || '0',
+        state: type.state || 'pre', clock: type.state === 'in' ? status.displayClock || '' : '', timed: c.timeValid !== false});
+    }
+    return out;
+  }
+
+  /** "6-4 3-6 5-2": the sets so far. */
+  function sets(p, q) {
+    var a = p.linescores || [], b = q.linescores || [], out = [];
+    for (var i = 0; i < a.length && i < b.length; i++) out.push(a[i].value + '-' + b[i].value);
+    return out.join(' ');
+  }
+
+  function player(x) {
+    var a = x && x.athlete;
+    return a ? a.shortName || a.displayName || '' : x && x.roster ? x.roster.shortDisplayName || x.roster.displayName || '' : '';
+  }
+
+  /** A tour's singles from `from` to `to`, with their tournament in `where`. */
+  function parseTennis(sport, body, from, to) {
+    var out = [], list = (body && body.events) || [];
+    for (var i = 0; i < list.length; i++) {
+      var e = list[i], groups = e.groupings || [];
+      for (var g = 0; g < groups.length; g++) {
+        if (!/singles/.test((groups[g].grouping && groups[g].grouping.slug) || '')) continue;
+        var comps = groups[g].competitions || [];
+        for (var k = 0; k < comps.length; k++) {
+          var c = comps[k], p = (c.competitors || []).slice().sort(function (x, y) { return (x.order || 0) - (y.order || 0); });
+          var type = (c.status && c.status.type) || {}, at = isoTime(c.startDate || c.date);
+          if (p.length < 2 || called(type) || at < from || at >= to) continue;
+          var a = player(p[0]), b = player(p[1]);
+          if (!a || !b || (a === 'TBD' && b === 'TBD')) continue;
+          out.push({id: sport.key + c.id, at: at, sport: sport.key, a: a, b: b, sets: type.state === 'pre' ? '' : sets(p[0], p[1]),
+            state: type.state || 'pre', where: e.shortName || e.name || '', timed: c.timeValid !== false});
+        }
+      }
+    }
+    return out;
+  }
+
+  var sportsData = stored('sports'), fetchingSports = false;
+
+  function sportsStamp() { return sportsActive().map(function (s) { return s.key; }).join(','); }
+
+  function anyLive(list) {
+    for (var i = 0; list && i < list.length; i++) if (list[i].state === 'in') return true;
+    return false;
+  }
+
+  /** Every 15 minutes (5 while something is live), and at once on a new day or when the competitions change. */
+  function refreshSports() {
+    var active = sportsActive(), stamp = sportsStamp(), now = Date.now(), today = dayKey(now);
+    if (!active.length) {
+      if (sportsData) { sportsData = null; store('sports', null); changed(); }
+      return;
+    }
+    var same = sportsData && sportsData.stamp === stamp && sportsData.day === today;
+    var every = same && anyLive(sportsData.events) ? 5 * 60000 : 15 * 60000;
+    if (fetchingSports || (same && now - sportsData.at < every && now >= sportsData.at)) return;
+    fetchingSports = true;
+    var from = midnight(now), to = midnight(now, 2), jobs = [];
+    for (var i = 0; i < active.length; i++) {
+      if (active[i].league) {
+        jobs.push({sport: active[i], url: ESPN + active[i].path + '/scoreboard?dates=' + dayKey(from)});
+        jobs.push({sport: active[i], url: ESPN + active[i].path + '/scoreboard?dates=' + dayKey(midnight(now, 1))});
+      } else {
+        jobs.push({sport: active[i], url: ESPN + active[i].path + '/scoreboard'});
+      }
+    }
+    var events = [], failed = {}, left = jobs.length, answered = 0;
+    for (var j = 0; j < jobs.length; j++) {
+      (function (job) {
+        get(job.url, {}, function (err, body) {
+          if (err) failed[job.sport.key] = true;
+          else {
+            answered++;
+            events = events.concat(job.sport.league ? parseGames(job.sport, body, from, to) : parseTennis(job.sport, body, from, to));
+          }
+          if (--left) return;
+          fetchingSports = false;
+          if (sportsStamp() !== stamp) { refreshSports(); return; }   // other competitions picked meanwhile
+          if (!answered) return;   // offline: what we had stays
+          // A competition that didn't answer keeps what it had, if that's from today.
+          if (same) {
+            for (var o = 0; o < sportsData.events.length; o++) if (failed[sportsData.events[o].sport]) events.push(sportsData.events[o]);
+          }
+          var seen = {}, list = [];
+          for (var n = 0; n < events.length; n++) {
+            if (seen['#' + events[n].id]) continue;
+            seen['#' + events[n].id] = true;
+            list.push(events[n]);
+          }
+          // By time; a match whose time isn't set yet goes after its day's others.
+          list.sort(function (x, y) { return dayKey(x.at) !== dayKey(y.at) ? x.at - y.at : x.timed !== y.timed ? (x.timed ? -1 : 1) : x.at - y.at; });
+          sportsData = {stamp: stamp, day: today, at: Date.now(), events: list};
+          store('sports', sportsData);
+          changed();
+        });
+      })(jobs[j]);
+    }
+  }
+
+  /** Today's and tomorrow's events of the competitions that are on: {today: [...], tomorrow: [...]}. */
+  function sportsDays() {
+    var out = {today: [], tomorrow: []}, now = Date.now(), from = midnight(now), next = midnight(now, 1), to = midnight(now, 2);
+    if (!sportsData || sportsData.stamp !== sportsStamp()) return out;
+    var list = sportsData.events || [];
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].at >= from && list[i].at < next) out.today.push(list[i]);
+      else if (list[i].at >= next && list[i].at < to) out.tomorrow.push(list[i]);
+    }
+    return out;
+  }
+
+  function sportOf(key) {
+    for (var i = 0; i < SPORTS.length; i++) if (SPORTS[i].key === key) return SPORTS[i];
+    return SPORTS[0];
   }
 
   // MARK: - Picks (TMDB)
@@ -653,8 +832,15 @@ var Data = (function () {
     appFor: appFor,
     usable: usable,
     services: services,
-    refresh: function () { refreshWeather(); refreshPrices(); refreshRecs(); },
+    refresh: function () { refreshWeather(); refreshPrices(); refreshRecs(); refreshSports(); },
     settingsChanged: function () { pricesAt = 0; refreshPrices(); changed(); },
+    SPORTS: SPORTS,
+    sportOf: sportOf,
+    /** Today's and tomorrow's games and matches (Home Settings → Sports today). */
+    sports: sportsDays,
+    get sportsAt() { return sportsData && sportsData.stamp === sportsStamp() ? sportsData.at : 0; },
+    /** Competitions turned on or off: their events now (those of the others go at once). */
+    sportsChanged: function () { refreshSports(); changed(); },
     findCity: findCity,
     /** Another city picked: its weather now (none shown until it comes). */
     cityChanged: function () { weather = null; weatherAt = 0; refreshWeather(); changed(); },

@@ -15,7 +15,7 @@ import translate  # noqa: E402  (the catalogues and the keys the web app uses)
 
 GENERIC = {'tmdbKey': '', 'tmdbRegion': '', 'latitude': '', 'longitude': '', 'city': '', 'language': 'auto',
            'currency': '', 'temperature': 'auto', 'theme': 'auto', 'showCrypto': True, 'hideAnimation': False, 'hideApps': [],
-           'shelfApps': [], 'drawerFirst': False, 'openPicksIn': 'apps'}
+           'shelfApps': [], 'drawerFirst': False, 'openPicksIn': 'apps', 'sports': []}
 
 
 def config_from_args(args):
@@ -67,7 +67,24 @@ def read_config(path):
         'shelfApps': [s.strip() for s in values.get('shelf_apps', '').split(',') if s.strip()],
         'drawerFirst': values.get('drawer_first', 'false').lower() == 'true',
         'openPicksIn': 'nuvio' if values.get('open_picks_in', '').strip().lower() == 'nuvio' else 'apps',
+        'sports': sports(values.get('sports', '')),
     }
+
+
+SPORTS = ('bra.1', 'bra.2', 'atp', 'wta')   # web/data.js's SPORTS
+
+
+def sports(value):
+    """config.properties' sports=bra.1,atp: the competitions the sports line starts with (none: off)."""
+    out = []
+    for key in (s.strip().lower() for s in value.split(',')):
+        if not key:
+            continue
+        if key not in SPORTS:
+            sys.exit('config.properties: sports takes %s (got "%s")' % (', '.join(SPORTS), key))
+        if key not in out:
+            out.append(key)
+    return out
 
 
 def coins():

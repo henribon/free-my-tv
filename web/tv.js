@@ -75,7 +75,7 @@ var TV = (function () {
   // The TV asks once to allow it; the key it gives back is kept. Newer firmware gives the page its own origin
   // (file://<app id>-webos), which the API refuses with 1008 "invalid origin": there our JS service (webos/service)
   // makes the call.
-  var SSAP_KEY = 'fmtv.ssapKey', SSAP_REFUSED = 'fmtv.ssapRefused';
+  var SSAP_KEY = 'fmtv.ssapKey', SSAP_REFUSED = 'fmtv.ssapRefused', WATCH_KEY = 'fmtv.watchKey';
 
   /** One call to the remote control API; done(result) with null on failure. */
   function ssap(uri, done) {
@@ -607,6 +607,23 @@ var TV = (function () {
 
     /** LG: keeps the TV's screensaver away while ours will take over (`hold` says when). */
     holdScreenSaver: holdScreenSaver,
+
+    /**
+     * LG: Return to Free My TV (Home Settings). Our service (webos/service) watches the app in front through the TV's
+     * remote control API and opens Free My TV when an app closes onto LG's home; Home pressed here leaves LG's home be.
+     * The TV asks once to allow it, with its own key (the app list's stays as it is). done(ok).
+     */
+    stayOnTop: function (on, done) {
+      if (!webos) { if (done) setTimeout(function () { done(!samsung); }, 0); return; }   // the preview says yes
+      var key = null;
+      try { key = localStorage.getItem(WATCH_KEY); } catch (e) {}
+      luna('luna://' + self + '.service/watch', {on: !!on, app: self, clientKey: key}, function (res) {
+        if (res && res.clientKey) {
+          try { localStorage.setItem(WATCH_KEY, res.clientKey); } catch (e) {}
+        }
+        if (done) done(!!(res && res.watching));
+      });
+    },
 
     /** Back on the first screen: back to wherever the person came from. */
     back: function () {
